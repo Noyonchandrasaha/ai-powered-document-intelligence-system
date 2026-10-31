@@ -1,13 +1,35 @@
 services:
+  mongo:
+    image: mongo:8.0
+    command: ["mongod", "--bind_ip_all"]
+    restart: unless-stopped
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+    healthcheck:
+      test: ["CMD-SHELL", "mongosh --quiet --eval \"db.adminCommand('ping').ok\""]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   api:
     build: .
     ports:
       - "8000:8000"
     env_file:
       - .env
+    environment:
+      APP_MONGO_URI: mongodb://mongo:27017
+    depends_on:
+      mongo:
+        condition: service_healthy
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/v1/health/live')"]
       interval: 30s
       timeout: 5s
       retries: 3
+
+volumes:
+  mongo_data:

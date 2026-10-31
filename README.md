@@ -9,6 +9,8 @@ FastAPI assignment starter with typed settings, structured logging, request IDs,
 3. Copy .env.example to .env.
 4. Run: uvicorn app.main:app --reload
 
+To run the API with MongoDB using Docker Compose, run: `docker compose up --build`.
+
 The API is available at http://localhost:8000.
 
 Health checks:

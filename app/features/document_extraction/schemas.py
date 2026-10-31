@@ -11,6 +11,7 @@ class DocumentStatus(StrEnum):
     PARTIAL = "partial"
     FAILED = "failed"
 
+
 class DocumentType(StrEnum):
     PDF = "pdf"
     JPG = "jpg"
@@ -20,6 +21,7 @@ class DocumentType(StrEnum):
     XLS = "xls"
     CSV = "csv"
 
+
 class DocumentResponse(BaseModel):
     document_id: str = Field(min_length=1, description="Unique document id")
     filename: str = Field(min_length=1, description="Original file name of uploaded file")
@@ -27,7 +29,7 @@ class DocumentResponse(BaseModel):
     file_size: int = Field(gt=0, description="Uploaded file size in bytes")
     status: DocumentStatus
     created_at: datetime
-    total_page: int | None = Field(
+    total_pages: int | None = Field(
         default=None,
         ge=1,
         description="Number of the pages for PDF documents",
@@ -36,7 +38,7 @@ class DocumentResponse(BaseModel):
 class UploadResponse(BaseModel):
     batch_id: str = Field(min_length=1, description="Unique identifier for the upload batch")
     total_files: int = Field(ge=1, description="Number of the uploaded documents")
-    doucuments: list[DocumentResponse] = Field(
+    documents: list[DocumentResponse] = Field(
         min_length=1,
         description="Document register in the upload batch",
     )

@@ -1,6 +1,6 @@
 # Production API
 
-Production-ready FastAPI starter with typed settings, structured logging, request IDs, health probes, consistent errors, tests, and container/CI support.
+FastAPI assignment starter with typed settings, structured logging, request IDs, health probes, consistent errors, tests, and container support.
 
 ## Local setup
 

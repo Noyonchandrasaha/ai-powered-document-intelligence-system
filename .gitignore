@@ -16,3 +16,4 @@ build/
 !.env.example
 .idea/
 .vscode/
+Vision-api.text

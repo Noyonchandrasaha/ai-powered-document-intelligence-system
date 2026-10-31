@@ -25,6 +25,7 @@ class Settings(BaseSettings):
     api_prefix: str = "/api/v1"
     mongo_uri: str = "mongodb://localhost:27017"
     mongo_database: str = "document_intelligence"
+    google_vision_credentials_file: str = "Vision-api.text"
     allowed_origins: list[str] = Field(default_factory=list)
     docs_enabled: bool = False
     allowed_hosts: list[str] = Field(default_factory=lambda: ["*"])

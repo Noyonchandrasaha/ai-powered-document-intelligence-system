@@ -27,7 +27,7 @@ APP_ALLOWED_HOSTS to the real API hostnames and keep APP_DOCS_ENABLED=false.
 - ruff check .
 - mypy app
 
-Tests are organized under tests/unit for isolated logic and tests/integration for API-boundary behavior.
+Tests are organized under tests/unit for isolated logic and tests/integration for API-boundary behavior. Pytest's filesystem cache is disabled to avoid permission issues on shared Windows workspaces.
 
 ## Production
 

@@ -2,12 +2,13 @@ from collections.abc import Awaitable, Callable
 from time import perf_counter
 from uuid import uuid4
 
-import structlog
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import Response
 
-logger = structlog.get_logger("http")
+from app.core.logging import get_logger
+
+logger = get_logger("http")
 
 
 class RequestContextMiddleware(BaseHTTPMiddleware):

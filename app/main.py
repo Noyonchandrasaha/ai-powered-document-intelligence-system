@@ -2,7 +2,6 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Any
 
-import structlog
 from fastapi import FastAPI, Request
 from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
@@ -14,11 +13,11 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 from app.api.v1.router import api_router
 from app.core.config import Settings, get_settings
 from app.core.exceptions import AppError
-from app.core.logging import configure_logging
+from app.core.logging import configure_logging, get_logger
 from app.middleware.request_context import RequestContextMiddleware
 from app.middleware.security import SecurityHeadersMiddleware
 
-logger = structlog.get_logger(__name__)
+logger = get_logger(__name__)
 
 
 def _error_response(

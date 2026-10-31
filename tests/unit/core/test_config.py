@@ -11,6 +11,17 @@ def test_api_prefix_is_normalized():
 
 
 @pytest.mark.unit
+def test_mongo_settings_are_configured():
+    settings = Settings(
+        mongo_uri="mongodb://mongo:27017",
+        mongo_database="test_database",
+    )
+
+    assert settings.mongo_uri == "mongodb://mongo:27017"
+    assert settings.mongo_database == "test_database"
+
+
+@pytest.mark.unit
 def test_empty_api_prefix_is_rejected():
     with pytest.raises(ValidationError):
         Settings(api_prefix=" ")

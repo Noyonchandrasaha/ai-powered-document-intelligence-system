@@ -23,6 +23,8 @@ class Settings(BaseSettings):
     debug: bool = False
     log_level: str = "INFO"
     api_prefix: str = "/api/v1"
+    mongo_uri: str = "mongodb://localhost:27017"
+    mongo_database: str = "document_intelligence"
     allowed_origins: list[str] = Field(default_factory=list)
     docs_enabled: bool = False
     allowed_hosts: list[str] = Field(default_factory=lambda: ["*"])

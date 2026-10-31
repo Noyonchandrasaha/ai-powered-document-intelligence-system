@@ -21,6 +21,9 @@ services:
       - .env
     environment:
       APP_MONGO_URI: mongodb://mongo:27017
+      APP_GOOGLE_VISION_CREDENTIALS_FILE: /app/secrets/Vision-api.text
+    volumes:
+      - ./Vision-api.text:/app/secrets/Vision-api.text:ro
     depends_on:
       mongo:
         condition: service_healthy

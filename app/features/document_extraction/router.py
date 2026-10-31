@@ -2,9 +2,18 @@
 from typing import Annotated
 
 from app.core.database import get_database
-from app.features.document_extraction.repository import DocumentRepository
+from app.features.document_extraction.processing_service import (
+    DocumentProcessingService,
+)
+from app.features.document_extraction.repository import (
+    DocumentRepository,
+    ProcessingRepository,
+)
 from app.features.document_extraction.schemas import (
     DocumentResponse,
+    DocumentStatus,
+    DocumentStatusResponse,
+    ProcessingHistoryResponse,
     UploadResponse,
 )
 from app.features.document_extraction.service import DocumentService
@@ -12,6 +21,7 @@ from app.features.document_extraction.validators import DocumentValidationError
 from app.storage.local import FileStorageError
 from fastapi import (
     APIRouter,
+    BackgroundTasks,
     Depends,
     File,
     HTTPException,
@@ -37,6 +47,24 @@ def get_document_service(
     repository = DocumentRepository(database)
 
     return DocumentService(repository)
+
+
+def get_processing_service(
+    database: Annotated[
+        AsyncDatabase[dict[str, object]],
+        Depends(get_database),
+    ],
+) -> DocumentProcessingService:
+    return DocumentProcessingService(database)
+
+
+def get_processing_repository(
+    database: Annotated[
+        AsyncDatabase[dict[str, object]],
+        Depends(get_database),
+    ],
+) -> ProcessingRepository:
+    return ProcessingRepository(database)
 
 
 DocumentId = Annotated[
@@ -68,10 +96,21 @@ async def upload_documents(
         DocumentService,
         Depends(get_document_service),
     ],
+    background_tasks: BackgroundTasks,
+    processing_service: Annotated[
+        DocumentProcessingService,
+        Depends(get_processing_service),
+    ],
 ) -> UploadResponse:
 
     try:
-        return await service.upload_documents(files)
+        response = await service.upload_documents(files)
+        for document in response.documents:
+            background_tasks.add_task(
+                processing_service.process_document,
+                document.document_id,
+            )
+        return response
 
     except (
         DocumentValidationError,
@@ -128,3 +167,134 @@ async def delete_document(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Document not found.",
         )
+
+
+@router.get(
+    "/{document_id}/status",
+    response_model=DocumentStatusResponse,
+    summary="Get document processing status",
+)
+async def get_document_status(
+    document_id: DocumentId,
+    database: Annotated[
+        AsyncDatabase[dict[str, object]],
+        Depends(get_database),
+    ],
+) -> DocumentStatusResponse:
+    status_response = await DocumentRepository(database).get_document_status(
+        document_id
+    )
+
+    if status_response is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Document not found.",
+        )
+
+    return status_response
+
+
+@router.post(
+    "/{document_id}/reprocess",
+    response_model=DocumentStatusResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+    summary="Reprocess a document",
+)
+async def reprocess_document(
+    document_id: DocumentId,
+    background_tasks: BackgroundTasks,
+    database: Annotated[
+        AsyncDatabase[dict[str, object]],
+        Depends(get_database),
+    ],
+    processing_service: Annotated[
+        DocumentProcessingService,
+        Depends(get_processing_service),
+    ],
+) -> DocumentStatusResponse:
+    repository = DocumentRepository(database)
+    document = await repository.get_document(document_id)
+
+    if document is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Document not found.",
+        )
+
+    if document.status not in {
+        DocumentStatus.FAILED,
+        DocumentStatus.PARTIAL,
+    }:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "Only failed or partial documents can be reprocessed."
+            ),
+        )
+
+    await repository.update_document_status(
+        document_id,
+        DocumentStatus.PENDING,
+    )
+    background_tasks.add_task(
+        processing_service.process_document,
+        document_id,
+    )
+
+    return DocumentStatusResponse(
+        document_id=document_id,
+        status=DocumentStatus.PENDING,
+    )
+
+
+@router.get(
+    "/{document_id}/history",
+    response_model=list[ProcessingHistoryResponse],
+    summary="Get document processing history",
+)
+async def get_processing_history(
+    document_id: DocumentId,
+    database: Annotated[
+        AsyncDatabase[dict[str, object]],
+        Depends(get_database),
+    ],
+    processing_repository: Annotated[
+        ProcessingRepository,
+        Depends(get_processing_repository),
+    ],
+) -> list[ProcessingHistoryResponse]:
+    if await DocumentRepository(database).get_document(document_id) is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Document not found.",
+        )
+
+    history = await processing_repository.get_history(document_id)
+    return [ProcessingHistoryResponse.model_validate(item) for item in history]
+
+
+@router.get(
+    "/search",
+    response_model=list[DocumentResponse],
+    summary="Search documents",
+)
+async def search_documents(
+    database: Annotated[
+        AsyncDatabase[dict[str, object]],
+        Depends(get_database),
+    ],
+    query: str | None = None,
+    document_status: DocumentStatus | None = None,
+    limit: int = 50,
+) -> list[DocumentResponse]:
+    if limit < 1 or limit > 100:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="limit must be between 1 and 100.",
+        )
+
+    return await DocumentRepository(database).search_documents(
+        query=query,
+        status=document_status,
+        limit=limit,
+    )

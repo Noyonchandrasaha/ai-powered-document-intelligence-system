@@ -83,16 +83,16 @@ class DocumentService:
             )
 
             logger.info(
-                "Document registered: %s",
-                document_id,
+                "document_registered",
+                document_id=document_id,
             )
 
             return document
 
         except Exception:
             logger.exception(
-                "Document upload failed: %s",
-                document_id,
+                "document_upload_failed",
+                document_id=document_id,
             )
 
             if file_saved:
@@ -103,8 +103,8 @@ class DocumentService:
                     )
                 except Exception:
                     logger.exception(
-                        "Failed to clean up file: %s",
-                        document_id,
+                        "document_upload_cleanup_failed",
+                        document_id=document_id,
                     )
 
             raise
@@ -135,8 +135,8 @@ class DocumentService:
 
         except Exception:
             logger.exception(
-                "Batch upload failed: %s",
-                batch_id,
+                "document_batch_upload_failed",
+                batch_id=batch_id,
             )
 
             # Best-effort rollback of previous uploads
@@ -147,8 +147,8 @@ class DocumentService:
                     )
                 except Exception:
                     logger.exception(
-                        "Batch rollback failed for: %s",
-                        document.document_id,
+                        "document_batch_rollback_failed",
+                        document_id=document.document_id,
                     )
 
             raise
@@ -191,8 +191,8 @@ class DocumentService:
             )
 
             logger.info(
-                "Document deleted: %s",
-                document_id,
+                "document_deleted",
+                document_id=document_id,
             )
 
         return deleted

@@ -1,3 +1,4 @@
+import asyncio
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Any
@@ -12,8 +13,14 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from app.api.v1.router import api_router
 from app.core.config import Settings, get_settings
+from app.core.database import get_database
 from app.core.exceptions import AppError
 from app.core.logging import configure_logging, get_logger
+from app.features.document_extraction.repository import (
+    DocumentRepository,
+    ProcessingRepository,
+)
+from app.features.invoices.repository import InvoiceRepository
 from app.middleware.request_context import RequestContextMiddleware
 from app.middleware.security import SecurityHeadersMiddleware
 
@@ -47,6 +54,23 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
+        if settings.environment != "test":
+            try:
+                database = get_database()
+                async def initialize_indexes() -> None:
+                    await DocumentRepository(database).ensure_indexes()
+                    await ProcessingRepository(database).ensure_indexes()
+                    await InvoiceRepository(database).ensure_indexes()
+
+                await asyncio.wait_for(
+                    initialize_indexes(),
+                    timeout=5.0,
+                )
+            except Exception as exc:
+                logger.warning(
+                    "database_index_initialization_failed",
+                    error=str(exc),
+                )
         logger.info("application_started", environment=settings.environment)
         yield
         logger.info("application_stopped")

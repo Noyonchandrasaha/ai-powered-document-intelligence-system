@@ -22,6 +22,18 @@ def test_mongo_settings_are_configured():
 
 
 @pytest.mark.unit
+def test_openai_settings_are_configured_without_exposing_api_key():
+    settings = Settings(
+        openai_api_key="test-api-key",
+        openai_model="gpt-test",
+    )
+
+    assert settings.openai_api_key == "test-api-key"
+    assert settings.openai_model == "gpt-test"
+    assert "test-api-key" not in repr(settings)
+
+
+@pytest.mark.unit
 def test_empty_api_prefix_is_rejected():
     with pytest.raises(ValidationError):
         Settings(api_prefix=" ")

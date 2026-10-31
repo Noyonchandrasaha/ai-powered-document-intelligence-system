@@ -25,6 +25,10 @@ class Settings(BaseSettings):
     api_prefix: str = "/api/v1"
     mongo_uri: str = "mongodb://localhost:27017"
     mongo_database: str = "document_intelligence"
+    openai_api_key: str | None = Field(default=None, repr=False)
+    openai_model: str = "gpt-5.5"
+    openai_embedding_model: str = "text-embedding-3-small"
+    semantic_search_enabled: bool = False
     google_vision_credentials_file: str = "Vision-api.text"
     allowed_origins: list[str] = Field(default_factory=list)
     docs_enabled: bool = False

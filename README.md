@@ -1,36 +1,122 @@
-# Production API
+# AI-Powered Document Intelligence Backend
 
-FastAPI assignment starter with typed settings, structured logging, request IDs, health probes, consistent errors, tests, and container support.
+FastAPI backend for processing business documents, extracting invoice data with
+OpenAI, validating the result against source evidence, and storing searchable
+results in MongoDB. The frontend is intentionally out of scope for this
+assignment implementation.
+
+## Architecture
+
+```text
+Upload API
+   |
+   v
+Local file storage + Mongo document metadata
+   |
+   v
+FastAPI BackgroundTasks
+   |
+   +--> PDF/PyMuPDF, Google Vision OCR, XLS/XLSX, CSV pipeline
+   |        |
+   |        +--> extraction_results collection
+   |        +--> processing_history collection
+   |        +--> document status update
+   |
+   v
+Invoice context -> OpenAI Responses API -> source/evidence validation
+   |
+   +--> consistency and duplicate checks
+   +--> invoice_extractions collection
+```
+
+The backend uses MongoDB for metadata, normalized extraction units, processing
+history, and validated invoice results. `BackgroundTasks` keeps OCR and AI work
+outside the upload request; a durable queue such as Celery/Redis can replace
+this adapter without changing the processing pipeline contract.
 
 ## Local setup
 
 1. Create and activate a Python 3.12 virtual environment.
-2. Install with: pip install -e ".[dev]"
-3. Copy .env.example to .env.
-4. Run: uvicorn app.main:app --reload
+2. Install dependencies:
 
-To run the API with MongoDB using Docker Compose, run: `docker compose up --build`.
+   ```powershell
+   python -m pip install -e ".[dev]"
+   ```
 
-The API is available at http://localhost:8000.
+3. Copy `.env.example` to `.env` and configure MongoDB, OpenAI, and Google
+   Vision credentials.
+4. Run MongoDB, then start the API:
 
-Health checks:
+   ```powershell
+   uvicorn app.main:app --reload
+   ```
 
-- GET /api/v1/health/live
-- GET /api/v1/health/ready
+Or run MongoDB and the API together:
 
-Interactive docs are at /docs while APP_DOCS_ENABLED=true.
+```powershell
+docker compose up --build
+```
 
-The app adds common security headers and validates the Host header. In production, set
-APP_ALLOWED_HOSTS to the real API hostnames and keep APP_DOCS_ENABLED=false.
+Never commit `.env`, service-account credentials, or API keys.
+
+## API endpoints
+
+### Documents
+
+- `POST /api/v1/documents/upload` — upload PDF, JPG, PNG, TIFF, XLSX, XLS, or CSV files.
+- `GET /api/v1/documents/{document_id}` — document metadata.
+- `GET /api/v1/documents/{document_id}/status` — processing status and errors.
+- `GET /api/v1/documents/{document_id}/history` — processing attempts.
+- `POST /api/v1/documents/{document_id}/reprocess` — queue failed/partial processing again.
+- `GET /api/v1/documents/search` — keyword/status filtering.
+- `DELETE /api/v1/documents/{document_id}` — delete metadata and local source file.
+
+### Invoice extraction
+
+- `POST /api/v1/invoices/documents/{document_id}/extract` — run structured invoice extraction.
+- `GET /api/v1/invoices/extractions/{extraction_id}` — retrieve one result.
+- `GET /api/v1/invoices/documents/{document_id}/latest` — retrieve latest result.
+- `GET /api/v1/invoices/search` — search invoice number, supplier, customer, or document ID.
+- `GET /api/v1/invoices/search/semantic` — embedding-based invoice search.
+- `PATCH /api/v1/invoices/extractions/{extraction_id}` — apply a manual correction.
+
+Health endpoints:
+
+- `GET /api/v1/health/live`
+- `GET /api/v1/health/ready`
+- `GET /`
+
+## Processing and validation
+
+The pipeline supports digital PDF text, scanned PDF OCR, image OCR, Excel
+workbooks, legacy XLS, and CSV chunks. It preserves page, sheet, row, and cell
+references for evidence validation. Invoice validation handles missing and
+uncertain values, unsupported AI claims, numeric/date/currency evidence,
+subtotal/tax/total consistency, line-item consistency, duplicate invoice
+numbers, and manual-review status.
+
+Set `APP_SEMANTIC_SEARCH_ENABLED=true` to create OpenAI embeddings during
+invoice extraction and enable the semantic search endpoint. The portable local
+implementation ranks stored vectors in Python; MongoDB Atlas Vector Search is
+recommended when the collection grows large.
 
 ## Quality checks
 
-- pytest --cov=app --cov-report=term-missing --cov-fail-under=80
-- ruff check .
-- mypy app
+```powershell
+python -m pytest --cov=app --cov-report=term-missing --cov-fail-under=80
+python -m ruff check .
+python -m mypy app
+```
 
-Tests are organized under tests/unit for isolated logic and tests/integration for API-boundary behavior. Pytest's filesystem cache is disabled to avoid permission issues on shared Windows workspaces.
+Tests are organized under `tests/unit` and `tests/integration`. Integration
+tests use controlled Mongo/OpenAI adapters and do not require live external
+services.
 
-## Production
+## Production notes
 
-Set APP_ENVIRONMENT=production, APP_ALLOWED_HOSTS to your real hostnames, keep secrets outside the repository, restrict APP_ALLOWED_ORIGINS, and run behind a TLS-terminating reverse proxy or managed load balancer.
+- Set `APP_ENVIRONMENT=production` and restrict `APP_ALLOWED_HOSTS`.
+- Keep `APP_OPENAI_API_KEY` and Google service-account credentials outside git.
+- Mount `Vision-api.text` into `/app/secrets/Vision-api.text` when using Docker.
+- Put the API behind TLS and an authenticated gateway.
+- For high-volume deployments, run the processing service behind a durable
+  queue/worker and use object storage instead of local disk.

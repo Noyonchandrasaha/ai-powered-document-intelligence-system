@@ -35,6 +35,23 @@ class DocumentResponse(BaseModel):
         description="Number of the pages for PDF documents",
     )
 
+
+class DocumentStatusResponse(BaseModel):
+    document_id: str = Field(min_length=1)
+    status: DocumentStatus
+    total_pages: int | None = Field(default=None, ge=1)
+    error_message: str | None = None
+    updated_at: datetime | None = None
+
+
+class ProcessingHistoryResponse(BaseModel):
+    document_id: str = Field(min_length=1)
+    status: DocumentStatus
+    processed_units: int = Field(ge=0)
+    error_message: str | None = None
+    started_at: datetime
+    completed_at: datetime | None = None
+
 class UploadResponse(BaseModel):
     batch_id: str = Field(min_length=1, description="Unique identifier for the upload batch")
     total_files: int = Field(ge=1, description="Number of the uploaded documents")

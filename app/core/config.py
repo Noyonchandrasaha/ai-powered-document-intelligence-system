@@ -1,7 +1,7 @@
 from functools import lru_cache
 from typing import Literal
 
-from pydantic import Field, field_validator
+from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -24,7 +24,8 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
     api_prefix: str = "/api/v1"
     allowed_origins: list[str] = Field(default_factory=list)
-    docs_enabled: bool = True
+    docs_enabled: bool = False
+    allowed_hosts: list[str] = Field(default_factory=lambda: ["*"])
 
     @field_validator("api_prefix")
     @classmethod
@@ -46,6 +47,12 @@ class Settings(BaseSettings):
     @property
     def app_name(self) -> str:
         return self.name
+
+    @model_validator(mode="after")
+    def validate_production_hosts(self) -> "Settings":
+        if self.is_production and "*" in self.allowed_hosts:
+            raise ValueError("APP_ALLOWED_HOSTS must be restricted in production")
+        return self
 
 
 @lru_cache

@@ -16,14 +16,19 @@ Health checks:
 - GET /api/v1/health/live
 - GET /api/v1/health/ready
 
-Interactive docs are at /docs while DOCS_ENABLED=true.
+Interactive docs are at /docs while APP_DOCS_ENABLED=true.
+
+The app adds common security headers and validates the Host header. In production, set
+APP_ALLOWED_HOSTS to the real API hostnames and keep APP_DOCS_ENABLED=false.
 
 ## Quality checks
 
-- pytest
+- pytest --cov=app --cov-report=term-missing --cov-fail-under=80
 - ruff check .
 - mypy app
 
+Tests are organized under tests/unit for isolated logic and tests/integration for API-boundary behavior.
+
 ## Production
 
-Set APP_ENVIRONMENT=production, keep secrets outside the repository, restrict APP_ALLOWED_ORIGINS, and run behind a TLS-terminating reverse proxy or managed load balancer.
+Set APP_ENVIRONMENT=production, APP_ALLOWED_HOSTS to your real hostnames, keep secrets outside the repository, restrict APP_ALLOWED_ORIGINS, and run behind a TLS-terminating reverse proxy or managed load balancer.

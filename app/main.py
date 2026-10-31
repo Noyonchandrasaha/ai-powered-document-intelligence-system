@@ -4,16 +4,19 @@ from typing import Any
 
 import structlog
 from fastapi import FastAPI, Request
+from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
+from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from app.api.v1.router import api_router
 from app.core.config import Settings, get_settings
 from app.core.exceptions import AppError
 from app.core.logging import configure_logging
 from app.middleware.request_context import RequestContextMiddleware
+from app.middleware.security import SecurityHeadersMiddleware
 
 logger = structlog.get_logger(__name__)
 
@@ -32,7 +35,7 @@ def _error_response(
             "error": {
                 "code": code,
                 "message": message,
-                "details": details,
+                "details": jsonable_encoder(details),
                 "request_id": getattr(request.state, "request_id", None),
             }
         },
@@ -52,11 +55,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app = FastAPI(
         title=settings.app_name,
         version=settings.version,
-        docs_url="/docs" if settings.docs_enabled else None,
-        redoc_url="/redoc" if settings.docs_enabled else None,
-        openapi_url="/openapi.json" if settings.docs_enabled else None,
+        docs_url="/docs" if settings.docs_enabled and not settings.is_production else None,
+        redoc_url="/redoc" if settings.docs_enabled and not settings.is_production else None,
+        openapi_url=(
+            "/openapi.json" if settings.docs_enabled and not settings.is_production else None
+        ),
         lifespan=lifespan,
     )
+    app.add_middleware(TrustedHostMiddleware, allowed_hosts=settings.allowed_hosts)
+    app.add_middleware(SecurityHeadersMiddleware)
     app.add_middleware(RequestContextMiddleware)
     app.add_middleware(
         CORSMiddleware,

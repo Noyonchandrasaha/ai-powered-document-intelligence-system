@@ -1,3 +1,8 @@
+import shutil
+from collections.abc import Iterator
+from pathlib import Path
+from uuid import uuid4
+
 import pytest
 from app.core.config import Settings
 from app.main import create_app
@@ -15,3 +20,13 @@ def app() -> FastAPI:
 def client(app: FastAPI):
     with TestClient(app) as test_client:
         yield test_client
+
+
+@pytest.fixture
+def workspace_tmp_path() -> Iterator[Path]:
+    path = Path.cwd() / f".test-temp-{uuid4().hex}"
+    path.mkdir(parents=True, exist_ok=True)
+    try:
+        yield path
+    finally:
+        shutil.rmtree(path, ignore_errors=True)

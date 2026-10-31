@@ -10,9 +10,15 @@ readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "fastapi>=0.115,<1.0",
+    "openpyxl==3.1.5",
+    "Pillow==13.0.0",
     "pydantic-settings>=2.6,<3.0",
+    "PyMuPDF==2.0",
     "structlog>=24.4,<26.0",
+    "types-openpyxl>=3.1,<4.0",
+    "types-xlrd>=2.0,<3.0",
     "uvicorn[standard]>=0.32,<1.0",
+    "xlrd==2.0.2",
 ]
 
 [project.optional-dependencies]

@@ -25,6 +25,8 @@ def create_document() -> DocumentResponse:
 def create_repository() -> tuple[DocumentRepository, MagicMock]:
     database = MagicMock()
     collection = MagicMock()
+    collection.find_one = AsyncMock(return_value=None)
+    collection.delete_many = AsyncMock()
     database.__getitem__.return_value = collection
     return DocumentRepository(database), collection
 
@@ -75,9 +77,7 @@ def test_update_document_status_updates_fields():
     document = create_document()
     document.status = DocumentStatus.COMPLETED
     document.total_pages = 3
-    collection.find_one_and_update = AsyncMock(
-        return_value=document.model_dump(mode="python")
-    )
+    collection.find_one_and_update = AsyncMock(return_value=document.model_dump(mode="python"))
 
     result = asyncio.run(
         repository.update_document_status(
@@ -118,9 +118,7 @@ def test_update_document_status_returns_none_when_missing():
     repository, collection = create_repository()
     collection.find_one_and_update = AsyncMock(return_value=None)
 
-    result = asyncio.run(
-        repository.update_document_status("missing", DocumentStatus.FAILED)
-    )
+    result = asyncio.run(repository.update_document_status("missing", DocumentStatus.FAILED))
 
     assert result is None
 

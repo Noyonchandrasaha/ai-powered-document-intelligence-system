@@ -1,6 +1,7 @@
 import asyncio
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, Request
@@ -8,6 +9,7 @@ from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
@@ -21,6 +23,8 @@ from app.features.document_extraction.repository import (
     ProcessingRepository,
 )
 from app.features.invoices.repository import InvoiceRepository
+from app.features.jobs import JobQueue
+from app.middleware.access import AccessMiddleware
 from app.middleware.request_context import RequestContextMiddleware
 from app.middleware.security import SecurityHeadersMiddleware
 
@@ -57,10 +61,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         if settings.environment != "test":
             try:
                 database = get_database()
+
                 async def initialize_indexes() -> None:
                     await DocumentRepository(database).ensure_indexes()
                     await ProcessingRepository(database).ensure_indexes()
                     await InvoiceRepository(database).ensure_indexes()
+                    await JobQueue(database).ensure_indexes()
 
                 await asyncio.wait_for(
                     initialize_indexes(),
@@ -71,6 +77,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     "database_index_initialization_failed",
                     error=str(exc),
                 )
+                raise RuntimeError(
+                    "Database/index initialization is required for safe job claims"
+                ) from exc
         logger.info("application_started", environment=settings.environment)
         yield
         logger.info("application_stopped")
@@ -87,15 +96,22 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
     app.add_middleware(TrustedHostMiddleware, allowed_hosts=settings.allowed_hosts)
     app.add_middleware(SecurityHeadersMiddleware)
+    app.add_middleware(AccessMiddleware, settings=settings)
     app.add_middleware(RequestContextMiddleware)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.allowed_origins,
         allow_credentials=False,
         allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-        allow_headers=["Authorization", "Content-Type", "X-Request-ID"],
+        allow_headers=["Authorization", "Content-Type", "X-Request-ID", "X-API-Key"],
     )
     app.include_router(api_router, prefix=settings.api_prefix)
+
+    frontend_dir = Path(__file__).resolve().parent.parent / "frontend"
+    if not frontend_dir.is_dir():
+        frontend_dir = Path(__file__).resolve().parent / "_frontend"
+    if frontend_dir.is_dir():
+        app.mount("/ui", StaticFiles(directory=frontend_dir, html=True), name="frontend")
 
     @app.get("/", tags=["system"], summary="Service status")
     async def root() -> dict[str, str]:

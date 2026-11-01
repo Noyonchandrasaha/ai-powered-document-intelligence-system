@@ -8,13 +8,15 @@ from fastapi import UploadFile
 
 BASE_DIR = Path(__file__).resolve().parents[2]
 
-UPLOAD_DIR = Path(os.getenv("UPLOAD_DIR", str(BASE_DIR/"data"/"uploads"))).resolve()
+UPLOAD_DIR = Path(os.getenv("UPLOAD_DIR", str(BASE_DIR / "data" / "uploads"))).resolve()
 
 CHUNK_SIZE = 1024 * 1024
 MAX_FILE_SIZE_MB = 50
 
+
 class FileStorageError(ValueError):
     """Raised when local file storage validation fails."""
+
 
 def get_document_directory(document_id: str) -> Path:
     if not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", document_id):
@@ -62,13 +64,12 @@ def get_file_path(document_id: str) -> Path:
     if not document_dir.is_dir():
         raise FileNotFoundError("Document not found")
     files = [
-        path
-        for path in document_dir.glob("source.*")
-        if path.is_file() and not path.is_symlink()
+        path for path in document_dir.glob("source.*") if path.is_file() and not path.is_symlink()
     ]
     if len(files) != 1:
         raise FileNotFoundError("Stored document is missing or invalid.")
     return files[0]
+
 
 def delete_file(document_id: str) -> bool:
     document_dir = get_document_directory(document_id)

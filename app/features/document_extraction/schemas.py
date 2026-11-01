@@ -42,6 +42,7 @@ class DocumentStatusResponse(BaseModel):
     total_pages: int | None = Field(default=None, ge=1)
     error_message: str | None = None
     updated_at: datetime | None = None
+    processed_units: int = Field(default=0, ge=0)
 
 
 class ProcessingHistoryResponse(BaseModel):
@@ -52,6 +53,7 @@ class ProcessingHistoryResponse(BaseModel):
     started_at: datetime
     completed_at: datetime | None = None
 
+
 class UploadResponse(BaseModel):
     batch_id: str = Field(min_length=1, description="Unique identifier for the upload batch")
     total_files: int = Field(ge=1, description="Number of the uploaded documents")
@@ -59,4 +61,3 @@ class UploadResponse(BaseModel):
         min_length=1,
         description="Document register in the upload batch",
     )
-    

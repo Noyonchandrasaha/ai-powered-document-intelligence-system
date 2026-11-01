@@ -1,4 +1,3 @@
-
 """FastAPI routes for AI invoice information extraction."""
 
 from typing import Annotated, Any
@@ -13,13 +12,9 @@ from app.features.document_extraction.schemas import (
 )
 from app.features.invoices.context import (
     MAX_SOURCE_UNITS,
-    InvoiceContextError,
 )
 from app.features.invoices.extractor import (
     InvoiceExtractionError,
-    InvoiceExtractionRefusalError,
-    InvoiceExtractionResponseError,
-    InvoiceExtractionTemporaryError,
     OpenAIInvoiceExtractor,
 )
 from app.features.invoices.repository import (
@@ -29,13 +24,6 @@ from app.features.invoices.schemas import (
     ExtractionStatus,
     InvoiceData,
     InvoiceExtractionResponse,
-)
-from app.features.invoices.service import (
-    InvoiceService,
-    InvoiceServiceError,
-)
-from app.features.invoices.validators import (
-    InvoiceValidationError,
 )
 from fastapi import (
     APIRouter,
@@ -88,10 +76,7 @@ class ExtractInvoiceRequest(BaseModel):
     extraction_id: str | None = Field(
         default=None,
         pattern=r"^[0-9a-f]{32}$",
-        description=(
-            "Optional existing extraction ID for "
-            "idempotent retries."
-        ),
+        description=("Optional existing extraction ID for idempotent retries."),
     )
 
 
@@ -148,46 +133,38 @@ async def load_document_results(
             "$in": unit_ids,
         }
 
-    cursor = database["extraction_results"].find(
-        query,
-        {"_id": 0},
-    ).limit(MAX_SOURCE_UNITS + 1)
-
-    results = await cursor.to_list(
-        length=MAX_SOURCE_UNITS + 1
+    cursor = (
+        database["extraction_results"]
+        .find(
+            query,
+            {"_id": 0},
+        )
+        .limit(MAX_SOURCE_UNITS + 1)
     )
+
+    results = await cursor.to_list(length=MAX_SOURCE_UNITS + 1)
 
     if len(results) > MAX_SOURCE_UNITS:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=(
-                "Document exceeds invoice context limits. "
-                "Select the relevant invoice source units."
+                "Document exceeds invoice context limits. Select the relevant invoice source units."
             ),
         )
 
     if unit_ids is not None:
-        found = {
-            item.get("unit_id")
-            for item in results
-        }
+        found = {item.get("unit_id") for item in results}
 
         if found != set(unit_ids):
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-                detail=(
-                    "One or more requested source units "
-                    "were not found."
-                ),
+                detail=("One or more requested source units were not found."),
             )
 
     if not results:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=(
-                "No Task 1 extraction results found "
-                "for this document."
-            ),
+            detail=("No Task 1 extraction results found for this document."),
         )
 
     return results
@@ -195,128 +172,30 @@ async def load_document_results(
 
 @router.post(
     "/documents/{document_id}/extract",
-    response_model=ExtractionRunResponse,
-    status_code=status.HTTP_200_OK,
-    summary="Extract structured invoice information",
+    status_code=status.HTTP_202_ACCEPTED,
+    summary="Queue structured invoice extraction",
 )
 async def extract_invoice(
     document_id: DocumentId,
     payload: ExtractInvoiceRequest,
-    database: Annotated[
-        AsyncDatabase[Any],
-        Depends(get_database),
-    ],
-    repository: Annotated[
-        InvoiceRepository,
-        Depends(get_invoice_repository),
-    ],
-) -> ExtractionRunResponse:
+    database: Annotated[AsyncDatabase[Any], Depends(get_database)],
+) -> dict[str, Any]:
+    from app.features.jobs import JobQueue
 
-    # Verify the source document exists.
-    document_repository = DocumentRepository(database)
-
-    document = await document_repository.get_document(
-        document_id
-    )
-
+    document = await DocumentRepository(database).get_document(document_id)
     if document is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Document not found.",
-        )
-
-    # Extraction should use finalized Task 1 results.
-    if document.status not in {
-        DocumentStatus.COMPLETED,
-        DocumentStatus.PARTIAL,
-    }:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=(
-                "Document processing must finish "
-                "before invoice extraction."
-            ),
-        )
-
-    settings = get_settings()
-    api_key = settings.openai_api_key
-
-    if not api_key:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="OpenAI integration is not configured.",
-        )
-
-    source_results = await load_document_results(
-        database=database,
-        document_id=document_id,
-        unit_ids=payload.unit_ids,
+        raise HTTPException(404, "Document not found.")
+    if document.status not in {DocumentStatus.COMPLETED, DocumentStatus.PARTIAL}:
+        raise HTTPException(409, "Document processing must finish before invoice extraction.")
+    if not get_settings().openai_api_key:
+        raise HTTPException(503, "OpenAI integration is not configured.")
+    if payload.unit_ids:
+        await load_document_results(database, document_id, payload.unit_ids)
+    return await JobQueue(database).enqueue(
+        "extract",
+        document_id,
+        payload.model_dump(mode="json"),
     )
-
-    try:
-        async with AsyncOpenAI(
-            api_key=api_key,
-        ) as client:
-
-            extractor = OpenAIInvoiceExtractor(
-                client=client,
-                model=settings.openai_model,
-                embedding_model=settings.openai_embedding_model,
-            )
-
-            service = InvoiceService(
-                repository=repository,
-                extractor=extractor,
-                semantic_search_enabled=settings.semantic_search_enabled,
-            )
-
-            outcome = await service.extract_invoice(
-                document_id=document_id,
-                source_results=source_results,
-                source_incomplete=(
-                    document.status == DocumentStatus.PARTIAL
-                ),
-                extraction_id=payload.extraction_id,
-            )
-
-        return ExtractionRunResponse(
-            extraction_id=outcome.extraction_id,
-            result=outcome.result,
-        )
-
-    except InvoiceExtractionTemporaryError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=str(exc),
-        ) from exc
-
-    except InvoiceExtractionRefusalError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail="AI model refused invoice extraction.",
-        ) from exc
-
-    except InvoiceExtractionResponseError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail="AI returned an invalid extraction response.",
-        ) from exc
-
-    except InvoiceExtractionError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail="Invoice extraction service failed.",
-        ) from exc
-
-    except (
-        InvoiceServiceError,
-        InvoiceContextError,
-        InvoiceValidationError,
-    ) as exc:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail=str(exc),
-        ) from exc
 
 
 @router.get(
@@ -332,9 +211,7 @@ async def get_invoice_extraction(
     ],
 ) -> InvoiceExtractionResponse:
 
-    result = await repository.get_extraction(
-        extraction_id
-    )
+    result = await repository.get_extraction(extraction_id)
 
     if result is None:
         raise HTTPException(
@@ -467,9 +344,7 @@ async def get_latest_invoice_extraction(
     ],
 ) -> InvoiceExtractionResponse:
 
-    result = await repository.get_latest_extraction(
-        document_id
-    )
+    result = await repository.get_latest_extraction(document_id)
 
     if result is None:
         raise HTTPException(

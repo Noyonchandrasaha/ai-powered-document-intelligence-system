@@ -1,16 +1,20 @@
-
 """MongoDB repository for validated invoice extractions."""
 
+import hashlib
+import heapq
 import math
 import re
 from datetime import UTC, datetime
 from typing import Any
 
+from app.core.config import get_settings
+from app.core.exceptions import AppError
 from app.features.invoices.schemas import (
     ExtractionStatus,
     InvoiceData,
     InvoiceExtractionResponse,
 )
+from app.features.invoices.validators import validate_manual_invoice
 from bson import BSON
 from pymongo import ASCENDING, DESCENDING, ReturnDocument
 from pymongo.asynchronous.database import AsyncDatabase
@@ -20,10 +24,7 @@ COLLECTION_NAME = "invoice_extractions"
 # MongoDB's maximum document size is 16 MiB.
 MAX_DOCUMENT_BYTES = 15 * 1024 * 1024
 
-RESULT_PROJECTION = {
-    field_name: 1
-    for field_name in InvoiceExtractionResponse.model_fields
-}
+RESULT_PROJECTION = {field_name: 1 for field_name in InvoiceExtractionResponse.model_fields}
 
 RESULT_PROJECTION["_id"] = 0
 
@@ -52,6 +53,7 @@ class InvoiceRepository:
         self,
         database: AsyncDatabase[Any],
     ) -> None:
+        self.database = database
         self.collection = database[COLLECTION_NAME]
 
     async def ensure_indexes(self) -> None:
@@ -75,6 +77,7 @@ class InvoiceRepository:
             ],
             name="idx_document_extractions",
         )
+        await self.database["invoice_identities"].create_index("identity", unique=True)
 
     async def save_extraction(
         self,
@@ -85,6 +88,7 @@ class InvoiceRepository:
         prompt_version: str,
         source_units: tuple[str, ...],
         embedding: list[float] | None = None,
+        source_fingerprint: str | None = None,
     ) -> str:
         """
         Persist a validated invoice extraction.
@@ -96,56 +100,47 @@ class InvoiceRepository:
         """
 
         if not extraction_id.strip():
-            raise InvoiceRepositoryError(
-                "Extraction ID is required."
-            )
+            raise InvoiceRepositoryError("Extraction ID is required.")
 
         if not result.document_id.strip():
-            raise InvoiceRepositoryError(
-                "Document ID is required."
-            )
+            raise InvoiceRepositoryError("Document ID is required.")
 
         if not model_name.strip():
-            raise InvoiceRepositoryError(
-                "AI model name is required."
-            )
+            raise InvoiceRepositoryError("AI model name is required.")
 
         if not prompt_version.strip():
-            raise InvoiceRepositoryError(
-                "Prompt version is required."
-            )
+            raise InvoiceRepositoryError("Prompt version is required.")
 
         # Convert enums and nested Pydantic models
         # into JSON-compatible Python data.
+        result.extraction_id = extraction_id
         payload = result.model_dump(mode="json")
 
         # Preserve a BSON datetime rather than an ISO string.
         payload["extracted_at"] = result.extracted_at
 
-        payload.update({
-            "extraction_id": extraction_id,
-            "model_name": model_name,
-            "prompt_version": prompt_version,
-            "source_units": list(source_units),
-            "created_at": datetime.now(UTC),
-        })
+        payload.update(
+            {
+                "extraction_id": extraction_id,
+                "model_name": model_name,
+                "prompt_version": prompt_version,
+                "source_units": list(source_units),
+                "created_at": datetime.now(UTC),
+                "source_fingerprint": source_fingerprint,
+            "revision": 0,
+            }
+        )
 
         if embedding is not None:
-            if not embedding or any(
-                not math.isfinite(value) for value in embedding
-            ):
-                raise InvoiceRepositoryError(
-                    "Embedding must contain finite numeric values."
-                )
+            if not embedding or any(not math.isfinite(value) for value in embedding):
+                raise InvoiceRepositoryError("Embedding must contain finite numeric values.")
             payload["embedding"] = embedding
 
         # Prevent oversized MongoDB documents.
         document_size = len(BSON.encode(payload))
 
         if document_size > MAX_DOCUMENT_BYTES:
-            raise InvoiceRepositoryError(
-                "Invoice extraction exceeds storage size limit."
-            )
+            raise InvoiceRepositoryError("Invoice extraction exceeds storage size limit.")
 
         # $setOnInsert makes retries with the same ID
         # idempotent: the first stored result is preserved.
@@ -169,9 +164,7 @@ class InvoiceRepository:
         """Retrieve an extraction by its unique ID."""
 
         if not extraction_id.strip():
-            raise InvoiceRepositoryError(
-                "Extraction ID is required."
-            )
+            raise InvoiceRepositoryError("Extraction ID is required.")
 
         document = await self.collection.find_one(
             {"extraction_id": extraction_id},
@@ -181,9 +174,7 @@ class InvoiceRepository:
         if document is None:
             return None
 
-        return InvoiceExtractionResponse.model_validate(
-            document
-        )
+        return InvoiceExtractionResponse.model_validate(document)
 
     async def get_latest_extraction(
         self,
@@ -192,9 +183,7 @@ class InvoiceRepository:
         """Retrieve the latest extraction for a document."""
 
         if not document_id.strip():
-            raise InvoiceRepositoryError(
-                "Document ID is required."
-            )
+            raise InvoiceRepositoryError("Document ID is required.")
 
         document = await self.collection.find_one(
             {"document_id": document_id},
@@ -208,9 +197,7 @@ class InvoiceRepository:
         if document is None:
             return None
 
-        return InvoiceExtractionResponse.model_validate(
-            document
-        )
+        return InvoiceExtractionResponse.model_validate(document)
 
     async def get_extraction_metadata(
         self,
@@ -219,9 +206,7 @@ class InvoiceRepository:
         """Retrieve processing metadata without invoice contents."""
 
         if not extraction_id.strip():
-            raise InvoiceRepositoryError(
-                "Extraction ID is required."
-            )
+            raise InvoiceRepositoryError("Extraction ID is required.")
 
         return await self.collection.find_one(
             {"extraction_id": extraction_id},
@@ -242,14 +227,34 @@ class InvoiceRepository:
         self,
         document_id: str,
         invoice_number: str | None,
+        supplier_name: str | None = None,
     ) -> dict[str, Any] | None:
         if not invoice_number or not invoice_number.strip():
             return None
 
+        # Only claim a supplier-scoped identity when both identifying fields
+        # exist. Atomic upsert prevents two concurrent uploads both passing.
+        if supplier_name:
+            key = "|".join(
+                " ".join(value.casefold().split()) for value in (supplier_name, invoice_number)
+            )
+            identity = hashlib.sha256(key.encode()).hexdigest()
+            owner = await self.database["invoice_identities"].find_one_and_update(
+                {"identity": identity},
+                {"$setOnInsert": {"identity": identity, "document_id": document_id}},
+                upsert=True,
+                return_document=ReturnDocument.AFTER,
+            )
+            if owner and owner["document_id"] != document_id:
+                return {"document_id": owner["document_id"]}
+            return None
         return await self.collection.find_one(
             {
                 "document_id": {"$ne": document_id},
-                "invoice.invoice_number": invoice_number,
+                "invoice.invoice_number": {
+                    "$regex": f"^{re.escape(invoice_number.strip())}$",
+                    "$options": "i",
+                },
             },
             {
                 "_id": 0,
@@ -294,15 +299,16 @@ class InvoiceRepository:
         if status is not None:
             filters["status"] = status.value
 
-        cursor = self.collection.find(
-            filters,
-            projection=RESULT_PROJECTION,
-        ).sort("extracted_at", DESCENDING).limit(limit)
+        cursor = (
+            self.collection.find(
+                filters,
+                projection=RESULT_PROJECTION,
+            )
+            .sort("extracted_at", DESCENDING)
+            .limit(limit)
+        )
         documents = await cursor.to_list(length=limit)
-        return [
-            InvoiceExtractionResponse.model_validate(item)
-            for item in documents
-        ]
+        return [InvoiceExtractionResponse.model_validate(item) for item in documents]
 
     async def semantic_search(
         self,
@@ -318,9 +324,7 @@ class InvoiceRepository:
         MongoDB Atlas Vector Search index without changing the API contract.
         """
 
-        if not query_vector or any(
-            not math.isfinite(value) for value in query_vector
-        ):
+        if not query_vector or any(not math.isfinite(value) for value in query_vector):
             raise InvoiceRepositoryError("Query embedding is invalid.")
 
         filters: dict[str, Any] = {"embedding": {"$exists": True}}
@@ -329,17 +333,34 @@ class InvoiceRepository:
 
         projection = dict(RESULT_PROJECTION)
         projection["embedding"] = 1
-        documents = await self.collection.find(
-            filters,
-            projection=projection,
-        ).to_list(length=10_000)
+        vector_index = get_settings().atlas_vector_index
+        if vector_index:
+            vector_filter = {"status": status.value} if status is not None else {}
+            cursor = await self.collection.aggregate(
+                [
+                    {
+                        "$vectorSearch": {
+                            "index": vector_index,
+                            "path": "embedding",
+                            "queryVector": query_vector,
+                            "numCandidates": max(100, limit * 20),
+                            "limit": limit,
+                            **({"filter": vector_filter} if vector_filter else {}),
+                        }
+                    },
+                    {"$project": RESULT_PROJECTION},
+                ]
+            )
+            return [InvoiceExtractionResponse.model_validate(item) async for item in cursor]
+        documents = self.collection.find(filters, projection=projection)
 
         query_norm = math.sqrt(sum(value * value for value in query_vector))
         if query_norm == 0:
             raise InvoiceRepositoryError("Query embedding cannot be zero.")
 
-        ranked: list[tuple[float, dict[str, Any]]] = []
-        for document in documents:
+        ranked: list[tuple[float, int, dict[str, Any]]] = []
+        sequence = 0
+        async for document in documents:
             embedding = document.get("embedding")
             if not isinstance(embedding, list) or len(embedding) != len(query_vector):
                 continue
@@ -347,22 +368,22 @@ class InvoiceRepository:
             document_norm = math.sqrt(sum(value * value for value in values))
             if document_norm == 0:
                 continue
-            score = sum(
-                left * right
-                for left, right in zip(query_vector, values, strict=True)
-            ) / (query_norm * document_norm)
-            ranked.append((score, document))
+            score = sum(left * right for left, right in zip(query_vector, values, strict=True)) / (
+                query_norm * document_norm
+            )
+            sequence += 1
+            entry = (score, sequence, document)
+            if len(ranked) < limit:
+                heapq.heappush(ranked, entry)
+            elif score > ranked[0][0]:
+                heapq.heapreplace(ranked, entry)
 
         ranked.sort(key=lambda item: item[0], reverse=True)
         return [
             InvoiceExtractionResponse.model_validate(
-                {
-                    key: value
-                    for key, value in document.items()
-                    if key != "embedding"
-                }
+                {key: value for key, value in document.items() if key != "embedding"}
             )
-            for _, document in ranked[:limit]
+            for _, _, document in ranked[:limit]
         ]
 
     async def correct_extraction(
@@ -373,25 +394,58 @@ class InvoiceRepository:
         corrected_by: str,
         reason: str,
     ) -> InvoiceExtractionResponse | None:
+        previous = await self.collection.find_one({"extraction_id": extraction_id})
+        if previous is None:
+            return None
+        missing, errors = validate_manual_invoice(invoice)
+        duplicate = await self.find_duplicate_invoice(
+            previous["document_id"], invoice.invoice_number, invoice.supplier_name
+        )
+        if duplicate:
+            errors.append("Invoice number already exists for another document.")
+        corrected_at = datetime.now(UTC)
+        revision = previous.get("revision", 0)
+        revision_filter: dict[str, Any] = {"extraction_id": extraction_id}
+        revision_filter["revision"] = revision if "revision" in previous else {"$exists": False}
         document = await self.collection.find_one_and_update(
-            {"extraction_id": extraction_id},
+            revision_filter,
             {
                 "$set": {
                     "invoice": invoice.model_dump(mode="json"),
-                    "status": ExtractionStatus.COMPLETED.value,
-                    "missing_fields": [],
+                    "status": (
+                        ExtractionStatus.NEEDS_REVIEW.value
+                        if missing or errors
+                        else ExtractionStatus.COMPLETED.value
+                    ),
+                    "missing_fields": missing,
                     "uncertain_fields": [],
-                    "validation_errors": [],
+                    "validation_errors": errors,
+                    "evidence": [],
                     "corrected_by": corrected_by,
                     "correction_reason": reason,
-                    "corrected_at": datetime.now(UTC),
-                }
+                    "corrected_at": corrected_at,
+                },
+                "$unset": {"embedding": ""},
+                "$inc": {"revision": 1},
+                "$push": {
+                    "correction_history": {
+                        "invoice_before": previous["invoice"],
+                        "invoice_after": invoice.model_dump(mode="json"),
+                        "corrected_by": corrected_by,
+                        "reason": reason,
+                        "corrected_at": corrected_at,
+                    }
+                },
             },
             projection=RESULT_PROJECTION,
             return_document=ReturnDocument.AFTER,
         )
 
         if document is None:
-            return None
+            raise AppError(
+                "Invoice changed during correction; reload and retry.",
+                code="correction_conflict",
+                status_code=409,
+            )
 
         return InvoiceExtractionResponse.model_validate(document)

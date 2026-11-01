@@ -25,11 +25,15 @@ def test_unknown_route_uses_standard_error_envelope(client):
 
 
 @pytest.mark.integration
-def test_production_disables_docs_and_requires_restricted_hosts():
+def test_production_disables_docs_and_requires_restricted_hosts(monkeypatch):
+    from mongomock_motor import AsyncMongoMockClient
+
+    monkeypatch.setattr("app.main.get_database", lambda: AsyncMongoMockClient().test_production)
     settings = Settings(
         environment="production",
         docs_enabled=True,
         allowed_hosts=["testserver"],
+        api_key="a" * 32,
     )
 
     with TestClient(create_app(settings)) as production_client:

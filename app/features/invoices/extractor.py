@@ -1,4 +1,3 @@
-
 from app.core.logging import get_logger
 from app.features.invoices.context import InvoiceContext
 from app.features.invoices.prompts import (
@@ -71,19 +70,13 @@ class OpenAIInvoiceExtractor:
             raise ValueError("OpenAI embedding model is required.")
 
         if max_output_tokens < 256:
-            raise ValueError(
-                "max_output_tokens must be at least 256."
-            )
+            raise ValueError("max_output_tokens must be at least 256.")
 
         if timeout_seconds <= 0:
-            raise ValueError(
-                "timeout_seconds must be positive."
-            )
+            raise ValueError("timeout_seconds must be positive.")
 
         if max_retries < 0:
-            raise ValueError(
-                "max_retries cannot be negative."
-            )
+            raise ValueError("max_retries cannot be negative.")
 
         self.client = client
         self.model = model
@@ -150,9 +143,7 @@ class OpenAIInvoiceExtractor:
                 document_id=context.document_id,
             )
 
-            raise InvoiceExtractionTemporaryError(
-                "OpenAI rate limit exceeded."
-            ) from exc
+            raise InvoiceExtractionTemporaryError("OpenAI rate limit exceeded.") from exc
 
         except (APITimeoutError, APIConnectionError) as exc:
             logger.warning(
@@ -160,9 +151,7 @@ class OpenAIInvoiceExtractor:
                 document_id=context.document_id,
             )
 
-            raise InvoiceExtractionTemporaryError(
-                "OpenAI connection failed or timed out."
-            ) from exc
+            raise InvoiceExtractionTemporaryError("OpenAI connection failed or timed out.") from exc
 
         except APIStatusError as exc:
             logger.error(
@@ -172,16 +161,11 @@ class OpenAIInvoiceExtractor:
                 request_id=exc.request_id,
             )
 
-            if exc.status_code in {408, 409} or (
-                exc.status_code >= 500
-            ):
-                raise InvoiceExtractionTemporaryError(
-                    "Temporary OpenAI service failure."
-                ) from exc
+            if exc.status_code in {408, 409} or (exc.status_code >= 500):
+                raise InvoiceExtractionTemporaryError("Temporary OpenAI service failure.") from exc
 
             raise InvoiceExtractionError(
-                f"OpenAI request rejected "
-                f"(HTTP {exc.status_code})."
+                f"OpenAI request rejected (HTTP {exc.status_code})."
             ) from exc
 
         except APIError as exc:
@@ -190,9 +174,7 @@ class OpenAIInvoiceExtractor:
                 document_id=context.document_id,
             )
 
-            raise InvoiceExtractionError(
-                "OpenAI extraction request failed."
-            ) from exc
+            raise InvoiceExtractionError("OpenAI extraction request failed.") from exc
 
         except (ValidationError, ValueError) as exc:
             logger.warning(
@@ -201,8 +183,7 @@ class OpenAIInvoiceExtractor:
             )
 
             raise InvoiceExtractionResponseError(
-                "OpenAI returned an invalid or "
-                "unparseable structured response."
+                "OpenAI returned an invalid or unparseable structured response."
             ) from exc
 
         if response.status != "completed":
@@ -213,21 +194,15 @@ class OpenAIInvoiceExtractor:
                 response_status=response.status,
             )
 
-            raise InvoiceExtractionResponseError(
-                "OpenAI did not complete invoice extraction."
-            )
+            raise InvoiceExtractionResponseError("OpenAI did not complete invoice extraction.")
 
         if self._has_refusal(response):
-            raise InvoiceExtractionRefusalError(
-                "OpenAI refused the extraction request."
-            )
+            raise InvoiceExtractionRefusalError("OpenAI refused the extraction request.")
 
         parsed_result = response.output_parsed
 
         if parsed_result is None:
-            raise InvoiceExtractionResponseError(
-                "OpenAI returned no parsed invoice result."
-            )
+            raise InvoiceExtractionResponseError("OpenAI returned no parsed invoice result.")
 
         logger.info(
             "invoice_extraction_completed",
@@ -262,13 +237,9 @@ class OpenAIInvoiceExtractor:
                 "OpenAI embedding request failed or timed out."
             ) from exc
         except APIError as exc:
-            raise InvoiceExtractionError(
-                "OpenAI embedding request failed."
-            ) from exc
+            raise InvoiceExtractionError("OpenAI embedding request failed.") from exc
 
         if not response.data or not response.data[0].embedding:
-            raise InvoiceExtractionResponseError(
-                "OpenAI returned an empty embedding."
-            )
+            raise InvoiceExtractionResponseError("OpenAI returned an empty embedding.")
 
         return [float(value) for value in response.data[0].embedding]

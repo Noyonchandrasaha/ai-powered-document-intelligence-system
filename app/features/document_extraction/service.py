@@ -1,4 +1,3 @@
-
 import asyncio
 from datetime import UTC, datetime
 from pathlib import Path
@@ -24,7 +23,6 @@ MAX_FILES_PER_BATCH = 20
 
 
 class DocumentService:
-
     def __init__(
         self,
         repository: DocumentRepository,
@@ -39,9 +37,7 @@ class DocumentService:
         # Validate the filename and extension
         document_type = validate_extension(file.filename)
 
-        original_filename = Path(
-            (file.filename or "").replace("\\", "/")
-        ).name
+        original_filename = Path((file.filename or "").replace("\\", "/")).name
 
         document_id = uuid4().hex
         file_saved = False
@@ -57,12 +53,10 @@ class DocumentService:
             file_saved = True
 
             # Validate signature and file integrity
-            validated_type, validated_size = (
-                await asyncio.to_thread(
-                    validate_document,
-                    file_path,
-                    original_filename,
-                )
+            validated_type, validated_size = await asyncio.to_thread(
+                validate_document,
+                file_path,
+                original_filename,
             )
 
             # Construct document metadata
@@ -115,14 +109,10 @@ class DocumentService:
     ) -> UploadResponse:
 
         if not files:
-            raise ValueError(
-                "At least one file is required."
-            )
+            raise ValueError("At least one file is required.")
 
         if len(files) > MAX_FILES_PER_BATCH:
-            raise ValueError(
-                f"Maximum {MAX_FILES_PER_BATCH} files allowed."
-            )
+            raise ValueError(f"Maximum {MAX_FILES_PER_BATCH} files allowed.")
 
         batch_id = uuid4().hex
         uploaded_documents: list[DocumentResponse] = []
@@ -142,9 +132,7 @@ class DocumentService:
             # Best-effort rollback of previous uploads
             for document in reversed(uploaded_documents):
                 try:
-                    await self.delete_document(
-                        document.document_id
-                    )
+                    await self.delete_document(document.document_id)
                 except Exception:
                     logger.exception(
                         "document_batch_rollback_failed",
@@ -164,25 +152,19 @@ class DocumentService:
         document_id: str,
     ) -> DocumentResponse | None:
 
-        return await self.repository.get_document(
-            document_id
-        )
+        return await self.repository.get_document(document_id)
 
     async def delete_document(
         self,
         document_id: str,
     ) -> bool:
 
-        document = await self.repository.get_document(
-            document_id
-        )
+        document = await self.repository.get_document(document_id)
 
         if document is None:
             return False
 
-        deleted = await self.repository.delete_document(
-            document_id
-        )
+        deleted = await self.repository.delete_document(document_id)
 
         if deleted:
             await asyncio.to_thread(

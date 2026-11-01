@@ -13,6 +13,9 @@ from fastapi.testclient import TestClient
 
 
 class NoOpProcessingService:
+    async def enqueue_document(self, document_id: str) -> None:
+        return None
+
     async def process_document(self, document_id: str) -> None:
         return None
 
@@ -26,9 +29,7 @@ def app(monkeypatch: pytest.MonkeyPatch) -> Iterator[FastAPI]:
         lambda: _ready_database(),
     )
     application = create_app(settings)
-    application.dependency_overrides[get_processing_service] = (
-        lambda: NoOpProcessingService()
-    )
+    application.dependency_overrides[get_processing_service] = lambda: NoOpProcessingService()
     yield application
     application.dependency_overrides.pop(get_processing_service, None)
 

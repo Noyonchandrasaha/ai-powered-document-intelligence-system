@@ -161,9 +161,7 @@ def test_upload_documents_returns_bad_request_for_invalid_file(
     client: TestClient,
     document_service: MagicMock,
 ):
-    document_service.upload_documents = AsyncMock(
-        side_effect=ValueError("Invalid document")
-    )
+    document_service.upload_documents = AsyncMock(side_effect=ValueError("Invalid document"))
 
     response = client.post(
         "/api/v1/documents/upload",

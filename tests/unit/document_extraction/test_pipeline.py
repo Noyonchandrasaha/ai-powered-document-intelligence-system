@@ -50,11 +50,7 @@ def test_process_document_rejects_invalid_document_id(workspace_tmp_path: Path):
     file_path.write_text("name\nAlice\n", encoding="utf-8")
 
     with pytest.raises(ValueError, match="Document ID is required"):
-        asyncio.run(
-            collect_results(
-                process_document(" ", file_path, DocumentType.CSV)
-            )
-        )
+        asyncio.run(collect_results(process_document(" ", file_path, DocumentType.CSV)))
 
 
 @pytest.mark.unit
@@ -107,15 +103,11 @@ def test_process_pdf_returns_partial_result_without_ocr_client(
         ),
     ):
         results = asyncio.run(
-            collect_results(
-                process_document("document-01", file_path, DocumentType.PDF)
-            )
+            collect_results(process_document("document-01", file_path, DocumentType.PDF))
         )
 
     assert results[0]["status"] == "partial"
-    assert results[0]["error"] == (
-        "OCR required but Google Vision client is not configured."
-    )
+    assert results[0]["error"] == ("OCR required but Google Vision client is not configured.")
     assert results[0]["metadata"]["ocr_attempted"] is False
 
 
@@ -137,9 +129,7 @@ def test_process_pdf_merges_native_and_ocr_results(workspace_tmp_path: Path):
         ),
     ):
         results = asyncio.run(
-            collect_results(
-                process_document("document-01", file_path, DocumentType.PDF, ocr)
-            )
+            collect_results(process_document("document-01", file_path, DocumentType.PDF, ocr))
         )
 
     assert results[0]["status"] == "completed"
@@ -159,11 +149,7 @@ def test_process_image_requires_ocr_client(workspace_tmp_path: Path):
     file_path.write_bytes(b"image")
 
     with pytest.raises(ProcessingPipelineError, match="required"):
-        asyncio.run(
-            collect_results(
-                process_document("document-01", file_path, DocumentType.PNG)
-            )
-        )
+        asyncio.run(collect_results(process_document("document-01", file_path, DocumentType.PNG)))
 
 
 @pytest.mark.unit

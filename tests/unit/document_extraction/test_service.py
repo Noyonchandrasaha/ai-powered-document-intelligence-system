@@ -115,9 +115,7 @@ def test_upload_documents_returns_batch_response():
     second_document = create_document("document-02")
     service.upload_document = AsyncMock(side_effect=[first_document, second_document])
 
-    result = asyncio.run(
-        service.upload_documents([create_upload_file(), create_upload_file()])
-    )
+    result = asyncio.run(service.upload_documents([create_upload_file(), create_upload_file()]))
 
     assert result.total_files == 2
     assert result.documents == [first_document, second_document]
@@ -129,15 +127,11 @@ def test_upload_documents_returns_batch_response():
 def test_upload_documents_rolls_back_previous_uploads_on_failure():
     service, _ = create_service()
     first_document = create_document("document-01")
-    service.upload_document = AsyncMock(
-        side_effect=[first_document, RuntimeError("upload failed")]
-    )
+    service.upload_document = AsyncMock(side_effect=[first_document, RuntimeError("upload failed")])
     service.delete_document = AsyncMock(return_value=True)
 
     with pytest.raises(RuntimeError, match="upload failed"):
-        asyncio.run(
-            service.upload_documents([create_upload_file(), create_upload_file()])
-        )
+        asyncio.run(service.upload_documents([create_upload_file(), create_upload_file()]))
 
     service.delete_document.assert_awaited_once_with("document-01")
 

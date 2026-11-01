@@ -80,12 +80,8 @@ def _as_chunks(
             "sheet_name": sheet_name,
             "sheet_index": sheet_index,
             "status": "completed",
-            "start_row": (
-                batch[0]["row_number"] if batch else None
-            ),
-            "end_row": (
-                batch[-1]["row_number"] if batch else None
-            ),
+            "start_row": (batch[0]["row_number"] if batch else None),
+            "end_row": (batch[-1]["row_number"] if batch else None),
             "rows": batch,
             "error": None,
         }
@@ -108,11 +104,7 @@ def _iter_xlsx_rows(
         ),
         start=1,
     ):
-        cached_cells = {
-            cell.coordinate: cell
-            for cell in cached_row
-            if cell.value is not None
-        }
+        cached_cells = {cell.coordinate: cell for cell in cached_row if cell.value is not None}
 
         cells = []
 
@@ -122,30 +114,22 @@ def _iter_xlsx_rows(
 
             is_formula = cell.data_type == "f"
 
-            cached_cell = cached_cells.get(
-                cell.coordinate
-            )
+            cached_cell = cached_cells.get(cell.coordinate)
 
             if is_formula:
-                value = (
-                    cached_cell.value
-                    if cached_cell is not None
-                    else None
-                )
+                value = cached_cell.value if cached_cell is not None else None
             else:
                 value = cell.value
 
-            cells.append({
-                "coordinate": cell.coordinate,
-                "value": _safe_value(value),
-                "data_type": cell.data_type,
-                "formula": (
-                    str(cell.value)
-                    if is_formula
-                    else None
-                ),
-                "number_format": cell.number_format,
-            })
+            cells.append(
+                {
+                    "coordinate": cell.coordinate,
+                    "value": _safe_value(value),
+                    "data_type": cell.data_type,
+                    "formula": (str(cell.value) if is_formula else None),
+                    "number_format": cell.number_format,
+                }
+            )
 
         yield {
             "row_number": row_number,
@@ -187,13 +171,8 @@ def _extract_xlsx(
                 raw_sheet = raw_book[name]
                 value_sheet = value_book[name]
 
-                if (
-                    raw_sheet.max_column
-                    and raw_sheet.max_column > max_columns
-                ):
-                    raise ExcelProcessingError(
-                        "Sheet exceeds configured column limit."
-                    )
+                if raw_sheet.max_column and raw_sheet.max_column > max_columns:
+                    raise ExcelProcessingError("Sheet exceeds configured column limit.")
 
                 yield from _as_chunks(
                     _iter_xlsx_rows(
@@ -221,9 +200,7 @@ def _extract_xlsx(
                     "start_row": None,
                     "end_row": None,
                     "rows": [],
-                    "error": (
-                        f"{type(exc).__name__}: {exc}"
-                    ),
+                    "error": (f"{type(exc).__name__}: {exc}"),
                 }
 
     finally:
@@ -242,28 +219,21 @@ def _extract_xls(
         str(path),
         on_demand=True,
     ) as book:
-
         for index, name in enumerate(
             book.sheet_names(),
             start=1,
         ):
             try:
-                sheet = book.sheet_by_index(
-                    index - 1
-                )
+                sheet = book.sheet_by_index(index - 1)
 
                 if sheet.ncols > max_columns:
-                    raise ExcelProcessingError(
-                        "Sheet exceeds configured column limit."
-                    )
+                    raise ExcelProcessingError("Sheet exceeds configured column limit.")
 
                 def iter_rows(current_sheet: Any = sheet) -> Iterator[dict[str, Any]]:
                     for row_idx in range(current_sheet.nrows):
                         cells = []
 
-                        for col_idx, cell in enumerate(
-                            current_sheet.row(row_idx)
-                        ):
+                        for col_idx, cell in enumerate(current_sheet.row(row_idx)):
                             if cell.ctype in (
                                 xlrd.XL_CELL_EMPTY,
                                 xlrd.XL_CELL_BLANK,
@@ -290,16 +260,17 @@ def _extract_xls(
                             else:
                                 value = cell.value
 
-                            cells.append({
-                                "coordinate": (
-                                    f"{get_column_letter(col_idx + 1)}"
-                                    f"{row_idx + 1}"
-                                ),
-                                "value": _safe_value(value),
-                                "data_type": str(cell.ctype),
-                                "formula": None,
-                                "number_format": None,
-                            })
+                            cells.append(
+                                {
+                                    "coordinate": (
+                                        f"{get_column_letter(col_idx + 1)}{row_idx + 1}"
+                                    ),
+                                    "value": _safe_value(value),
+                                    "data_type": str(cell.ctype),
+                                    "formula": None,
+                                    "number_format": None,
+                                }
+                            )
 
                         yield {
                             "row_number": row_idx + 1,
@@ -329,9 +300,7 @@ def _extract_xls(
                     "start_row": None,
                     "end_row": None,
                     "rows": [],
-                    "error": (
-                        f"{type(exc).__name__}: {exc}"
-                    ),
+                    "error": (f"{type(exc).__name__}: {exc}"),
                 }
 
             finally:
@@ -357,19 +326,13 @@ def extract_excel_chunks(
     path = Path(file_path)
 
     if not path.is_file():
-        raise FileNotFoundError(
-            f"Excel file not found: {path}"
-        )
+        raise FileNotFoundError(f"Excel file not found: {path}")
 
     if path.suffix.lower() not in {".xlsx", ".xls"}:
-        raise ExcelProcessingError(
-            "Supported formats are .xlsx and .xls."
-        )
+        raise ExcelProcessingError("Supported formats are .xlsx and .xls.")
 
     if chunk_size <= 0 or max_columns <= 0:
-        raise ValueError(
-            "chunk_size and max_columns must be positive."
-        )
+        raise ValueError("chunk_size and max_columns must be positive.")
 
     try:
         if path.suffix.lower() == ".xlsx":
@@ -391,6 +354,4 @@ def extract_excel_chunks(
             file_path=str(path),
             error=str(exc),
         )
-        raise ExcelProcessingError(
-            "Unable to open or read Excel file."
-        ) from exc
+        raise ExcelProcessingError("Unable to open or read Excel file.") from exc

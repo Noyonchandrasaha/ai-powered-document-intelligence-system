@@ -1,4 +1,3 @@
-
 import json
 from textwrap import dedent
 
@@ -209,19 +208,13 @@ def build_invoice_user_prompt(
     """
 
     if not context.document_id.strip():
-        raise ValueError(
-            "Document ID cannot be empty."
-        )
+        raise ValueError("Document ID cannot be empty.")
 
     if not context.content.strip():
-        raise ValueError(
-            "Invoice context cannot be empty."
-        )
+        raise ValueError("Invoice context cannot be empty.")
 
     if context.source_record_count < 1:
-        raise ValueError(
-            "Invoice context has no source records."
-        )
+        raise ValueError("Invoice context has no source records.")
 
     payload = {
         "document_id": context.document_id,

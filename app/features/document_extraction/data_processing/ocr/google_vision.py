@@ -1,4 +1,3 @@
-
 import asyncio
 import base64
 import io
@@ -17,16 +16,18 @@ from PIL import Image
 
 logger = get_logger(__name__)
 
-VISION_API_URL = (
-    "https://vision.googleapis.com/v1/images:annotate"
-)
+VISION_API_URL = "https://vision.googleapis.com/v1/images:annotate"
 
 # Keep base64 JSON requests below Google's 10 MB limit.
 MAX_IMAGE_BYTES = 7 * 1024 * 1024
 GOOGLE_VISION_SCOPE = "https://www.googleapis.com/auth/cloud-vision"
 
 RETRYABLE_STATUS_CODES = {
-    429, 500, 502, 503, 504,
+    429,
+    500,
+    502,
+    503,
+    504,
 }
 
 
@@ -65,11 +66,8 @@ def render_pdf_page(
 
     try:
         with pymupdf.open(str(file_path)) as document:  # type: ignore[no-untyped-call]
-
             if document.needs_pass:
-                raise VisionOCRError(
-                    "Password-protected PDF is not supported."
-                )
+                raise VisionOCRError("Password-protected PDF is not supported.")
 
             if not 1 <= page_number <= document.page_count:
                 raise ValueError("Invalid PDF page number.")
@@ -81,9 +79,7 @@ def render_pdf_page(
             height = page.rect.height * dpi / 72
 
             if width <= 0 or height <= 0:
-                raise VisionOCRError(
-                    "PDF page has invalid dimensions."
-                )
+                raise VisionOCRError("PDF page has invalid dimensions.")
 
             max_pixels = 12_000_000
             scale = min(
@@ -124,17 +120,13 @@ def render_pdf_page(
                 if len(image_bytes) <= MAX_IMAGE_BYTES:
                     return image_bytes
 
-            raise VisionOCRError(
-                "Rendered PDF page exceeds OCR size limit."
-            )
+            raise VisionOCRError("Rendered PDF page exceeds OCR size limit.")
 
     except (ValueError, VisionOCRError):
         raise
 
     except Exception as exc:
-        raise VisionOCRError(
-            f"Failed to render PDF page {page_number}."
-        ) from exc
+        raise VisionOCRError(f"Failed to render PDF page {page_number}.") from exc
 
 
 def parse_vision_response(
@@ -147,17 +139,13 @@ def parse_vision_response(
     responses = response_data.get("responses", [])
 
     if not responses:
-        raise VisionOCRError(
-            "Google Vision returned an empty response."
-        )
+        raise VisionOCRError("Google Vision returned an empty response.")
 
     result = responses[0]
 
     if result.get("error"):
         error = result["error"]
-        raise VisionOCRError(
-            error.get("message", "Google Vision OCR failed.")
-        )
+        raise VisionOCRError(error.get("message", "Google Vision OCR failed."))
 
     annotation = result.get("fullTextAnnotation", {})
 
@@ -168,27 +156,20 @@ def parse_vision_response(
     page_confidences: list[float] = []
 
     for page in pages:
-
         if page.get("confidence") is not None:
-            page_confidences.append(
-                float(page["confidence"])
-            )
+            page_confidences.append(float(page["confidence"]))
 
         for block in page.get("blocks", []):
             for paragraph in block.get("paragraphs", []):
                 for word in paragraph.get("words", []):
-
                     word_text = "".join(
-                        symbol.get("text", "")
-                        for symbol in word.get("symbols", [])
+                        symbol.get("text", "") for symbol in word.get("symbols", [])
                     )
 
                     if not word_text:
                         continue
 
-                    vertices = word.get(
-                        "boundingBox", {}
-                    ).get("vertices", [])
+                    vertices = word.get("boundingBox", {}).get("vertices", [])
 
                     bounding_box = [
                         {
@@ -200,21 +181,15 @@ def parse_vision_response(
 
                     confidence = word.get("confidence")
 
-                    words.append({
-                        "text": word_text,
-                        "confidence": (
-                            float(confidence)
-                            if confidence is not None
-                            else None
-                        ),
-                        "bounding_box": bounding_box,
-                    })
+                    words.append(
+                        {
+                            "text": word_text,
+                            "confidence": (float(confidence) if confidence is not None else None),
+                            "bounding_box": bounding_box,
+                        }
+                    )
 
-    confidence = (
-        sum(page_confidences) / len(page_confidences)
-        if page_confidences
-        else None
-    )
+    confidence = sum(page_confidences) / len(page_confidences) if page_confidences else None
 
     first_page = pages[0] if pages else {}
 
@@ -242,18 +217,14 @@ class GoogleVisionOCR:
         max_retries: int = 2,
     ):
         if max_retries < 0:
-            raise ValueError(
-                "max_retries cannot be negative."
-            )
+            raise ValueError("max_retries cannot be negative.")
 
         credential_path = Path(
             credentials_file or get_settings().google_vision_credentials_file
         ).expanduser()
 
         if not credential_path.is_file():
-            raise FileNotFoundError(
-                f"Google Vision credential file not found: {credential_path}"
-            )
+            raise FileNotFoundError(f"Google Vision credential file not found: {credential_path}")
 
         try:
             self.credentials = service_account.Credentials.from_service_account_file(  # type: ignore[no-untyped-call]
@@ -261,9 +232,7 @@ class GoogleVisionOCR:
                 scopes=[GOOGLE_VISION_SCOPE],
             )
         except (GoogleAuthError, OSError, ValueError) as exc:
-            raise ValueError(
-                "Invalid Google Vision service-account credentials."
-            ) from exc
+            raise ValueError("Invalid Google Vision service-account credentials.") from exc
 
         self.max_retries = max_retries
 
@@ -291,14 +260,10 @@ class GoogleVisionOCR:
                     Request(),
                 )
             except GoogleAuthError as exc:
-                raise VisionOCRError(
-                    "Google Vision authentication failed."
-                ) from exc
+                raise VisionOCRError("Google Vision authentication failed.") from exc
 
         if not self.credentials.token:
-            raise VisionOCRError(
-                "Google Vision authentication token is unavailable."
-            )
+            raise VisionOCRError("Google Vision authentication token is unavailable.")
 
         return cast(str, self.credentials.token)
 
@@ -311,18 +276,12 @@ class GoogleVisionOCR:
         """
 
         if not image_bytes:
-            raise VisionOCRError(
-                "Image content cannot be empty."
-            )
+            raise VisionOCRError("Image content cannot be empty.")
 
         if len(image_bytes) > MAX_IMAGE_BYTES:
-            raise VisionOCRError(
-                "Image exceeds direct OCR request size limit."
-            )
+            raise VisionOCRError("Image exceeds direct OCR request size limit.")
 
-        encoded_image = base64.b64encode(
-            image_bytes
-        ).decode("ascii")
+        encoded_image = base64.b64encode(image_bytes).decode("ascii")
 
         payload = {
             "requests": [
@@ -340,7 +299,6 @@ class GoogleVisionOCR:
         }
 
         for attempt in range(self.max_retries + 1):
-
             try:
                 access_token = await self._get_access_token()
                 response = await self.client.post(
@@ -352,43 +310,28 @@ class GoogleVisionOCR:
                 )
 
             except httpx.RequestError as exc:
-
                 if attempt < self.max_retries:
-                    await asyncio.sleep(2 ** attempt)
+                    await asyncio.sleep(2**attempt)
                     continue
 
-                raise VisionOCRError(
-                    "Google Vision request failed."
-                ) from exc
+                raise VisionOCRError("Google Vision request failed.") from exc
 
-            if (
-                response.status_code in RETRYABLE_STATUS_CODES
-                and attempt < self.max_retries
-            ):
-                await asyncio.sleep(2 ** attempt)
+            if response.status_code in RETRYABLE_STATUS_CODES and attempt < self.max_retries:
+                await asyncio.sleep(2**attempt)
                 continue
 
             if response.is_error:
-                raise VisionOCRError(
-                    "Google Vision returned HTTP "
-                    f"{response.status_code}."
-                )
+                raise VisionOCRError(f"Google Vision returned HTTP {response.status_code}.")
 
             try:
                 response_data = response.json()
 
             except ValueError as exc:
-                raise VisionOCRError(
-                    "Invalid Google Vision JSON response."
-                ) from exc
+                raise VisionOCRError("Invalid Google Vision JSON response.") from exc
 
-            return parse_vision_response(
-                response_data
-            )
+            return parse_vision_response(response_data)
 
-        raise VisionOCRError(
-            "Google Vision OCR retries exhausted."
-        )
+        raise VisionOCRError("Google Vision OCR retries exhausted.")
 
     async def extract_pdf_page(
         self,
@@ -407,9 +350,7 @@ class GoogleVisionOCR:
             dpi,
         )
 
-        result = await self.extract_image(
-            image_bytes
-        )
+        result = await self.extract_image(image_bytes)
 
         logger.info(
             "google_vision_ocr_completed",

@@ -1,4 +1,3 @@
-
 import json
 from collections.abc import Iterable, Iterator, Mapping
 from dataclasses import dataclass
@@ -57,11 +56,7 @@ def _iter_page_sources(
             "text": ocr_text,
         }
 
-    if (
-        not native_text.strip()
-        and not ocr_text.strip()
-        and fallback_text.strip()
-    ):
+    if not native_text.strip() and not ocr_text.strip() and fallback_text.strip():
         yield {
             "source_id": f"{unit_id}:text",
             "kind": "page",
@@ -82,17 +77,17 @@ def _iter_tabular_sources(
         cells = []
 
         for cell in row.get("cells", []):
-            if cell.get("value") is None and not cell.get(
-                "formula"
-            ):
+            if cell.get("value") is None and not cell.get("formula"):
                 continue
 
-            cells.append({
-                "coordinate": cell.get("coordinate"),
-                "value": cell.get("value"),
-                "formula": cell.get("formula"),
-                "data_type": cell.get("data_type"),
-            })
+            cells.append(
+                {
+                    "coordinate": cell.get("coordinate"),
+                    "value": cell.get("value"),
+                    "formula": cell.get("formula"),
+                    "data_type": cell.get("data_type"),
+                }
+            )
 
         if not cells:
             continue
@@ -124,9 +119,7 @@ def _iter_source_records(
         yield from _iter_tabular_sources(result)
 
     else:
-        raise InvoiceContextError(
-            f"Unsupported processing result kind: {kind}"
-        )
+        raise InvoiceContextError(f"Unsupported processing result kind: {kind}")
 
 
 def build_invoice_context(
@@ -150,19 +143,12 @@ def build_invoice_context(
     """
 
     if not document_id.strip():
-        raise InvoiceContextError(
-            "Document ID is required."
-        )
+        raise InvoiceContextError("Document ID is required.")
 
     if min(max_chars, max_units, max_records) <= 0:
-        raise ValueError(
-            "Context limits must be positive."
-        )
+        raise ValueError("Context limits must be positive.")
 
-    header = (
-        f"DOCUMENT_ID: {document_id}\n"
-        "SOURCE_RECORDS_JSONL:\n"
-    )
+    header = f"DOCUMENT_ID: {document_id}\nSOURCE_RECORDS_JSONL:\n"
 
     content_parts = [header]
     current_size = len(header)
@@ -185,30 +171,23 @@ def build_invoice_context(
             )
 
         if result.get("document_id") != document_id:
-            raise InvoiceContextError(
-                "Source document ID does not match."
-            )
+            raise InvoiceContextError("Source document ID does not match.")
 
         unit_id = result.get("unit_id")
 
         if not isinstance(unit_id, str) or not unit_id:
-            raise InvoiceContextError(
-                "Processing result has no valid unit ID."
-            )
+            raise InvoiceContextError("Processing result has no valid unit ID.")
 
         status = result.get("status")
 
         if status not in {"completed", "partial", "failed"}:
-            raise InvoiceContextError(
-                f"Invalid source status: {status}"
-            )
+            raise InvoiceContextError(f"Invalid source status: {status}")
 
         if status in {"partial", "failed"}:
             incomplete = True
 
             warnings.append(
-                f"{unit_id}: {status} "
-                f"({result.get('error') or 'incomplete extraction'})"
+                f"{unit_id}: {status} ({result.get('error') or 'incomplete extraction'})"
             )
 
         unit_has_content = False
@@ -223,12 +202,15 @@ def build_invoice_context(
                     "smaller relevant sections."
                 )
 
-            serialized = json.dumps(
-                record,
-                ensure_ascii=False,
-                separators=(",", ":"),
-                default=str,
-            ) + "\n"
+            serialized = (
+                json.dumps(
+                    record,
+                    ensure_ascii=False,
+                    separators=(",", ":"),
+                    default=str,
+                )
+                + "\n"
+            )
 
             if current_size + len(serialized) > max_chars:
                 raise ContextLimitExceeded(
@@ -247,9 +229,7 @@ def build_invoice_context(
             included_units.append(unit_id)
 
     if record_count == 0:
-        raise InvoiceContextError(
-            "No extractable invoice content was found."
-        )
+        raise InvoiceContextError("No extractable invoice content was found.")
 
     return InvoiceContext(
         document_id=document_id,

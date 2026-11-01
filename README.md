@@ -2,8 +2,8 @@
 
 FastAPI backend for processing business documents, extracting invoice data with
 OpenAI, validating the result against source evidence, and storing searchable
-results in MongoDB. The frontend is intentionally out of scope for this
-assignment implementation.
+results in MongoDB. A plain HTML/CSS/JavaScript review dashboard is served by
+FastAPI at `/ui/`.
 
 ## Architecture
 
@@ -14,7 +14,7 @@ Upload API
 Local file storage + Mongo document metadata
    |
    v
-FastAPI BackgroundTasks
+   MongoDB durable job queue
    |
    +--> PDF/PyMuPDF, Google Vision OCR, XLS/XLSX, CSV pipeline
    |        |
@@ -29,10 +29,7 @@ Invoice context -> OpenAI Responses API -> source/evidence validation
    +--> invoice_extractions collection
 ```
 
-The backend uses MongoDB for metadata, normalized extraction units, processing
-history, and validated invoice results. `BackgroundTasks` keeps OCR and AI work
-outside the upload request; a durable queue such as Celery/Redis can replace
-this adapter without changing the processing pipeline contract.
+The backend stores metadata, extracted units, processing history, and validated invoice results in MongoDB. A durable MongoDB lease queue keeps OCR and AI work outside API requests. The separate worker claims jobs atomically, renews leases, records attempts, and recovers abandoned work after restarts. Processing checkpoints are saved per page, sheet, or row chunk.
 
 ## Local setup
 
@@ -51,11 +48,23 @@ this adapter without changing the processing pipeline contract.
    uvicorn app.main:app --reload
    ```
 
+5. Open `http://localhost:8000/ui/` for the browser dashboard. The dashboard
+   supports multi-file uploads, document processing monitoring, source-unit
+   inspection, invoice extraction and review, corrections, search, and
+   document-to-document reconciliation. If `APP_API_KEY` is configured, use
+   **Workspace admin → API settings** to enter it in the browser.
+
 Or run MongoDB and the API together:
 
 ```powershell
 docker compose up --build
 ```
+
+Set unique random hex values for `MONGO_ROOT_PASSWORD`, `MONGO_APP_PASSWORD`,
+and `APP_API_KEY` (at least 32 characters) in `.env`. Mongo creates a
+least-privilege application user; uploads persist in a named volume. Mount
+Google Vision credentials at `secrets/google-vision.json`. Run a local worker
+with `.venv\\Scripts\\python -m app.worker`.
 
 Never commit `.env`, service-account credentials, or API keys.
 
@@ -69,15 +78,21 @@ Never commit `.env`, service-account credentials, or API keys.
 - `GET /api/v1/documents/{document_id}/history` — processing attempts.
 - `POST /api/v1/documents/{document_id}/reprocess` — queue failed/partial processing again.
 - `GET /api/v1/documents/search` — keyword/status filtering.
+- `GET /api/v1/documents/{document_id}/units` ? inspect extracted pages, sheets, and rows.
+- `GET /api/v1/documents/{document_id}/candidates` ? inspect invoice groups.
 - `DELETE /api/v1/documents/{document_id}` — delete metadata and local source file.
 
 ### Invoice extraction
 
-- `POST /api/v1/invoices/documents/{document_id}/extract` — run structured invoice extraction.
+- `POST /api/v1/invoices/documents/{document_id}/extract` — queue invoice extraction and return a job ID.
+- `GET /api/v1/jobs/{job_id}` ? poll processing and extraction jobs.
+- `POST /api/v1/jobs/{job_id}/retry` ? retry failed jobs.
 - `GET /api/v1/invoices/extractions/{extraction_id}` — retrieve one result.
 - `GET /api/v1/invoices/documents/{document_id}/latest` — retrieve latest result.
 - `GET /api/v1/invoices/search` — search invoice number, supplier, customer, or document ID.
 - `GET /api/v1/invoices/search/semantic` — embedding-based invoice search.
+- `POST /api/v1/reconciliations` ? cross-check invoices from two documents.
+- `GET /api/v1/reconciliations/{reconciliation_id}` ? retrieve a comparison report.
 - `PATCH /api/v1/invoices/extractions/{extraction_id}` — apply a manual correction.
 
 Health endpoints:
@@ -95,10 +110,7 @@ uncertain values, unsupported AI claims, numeric/date/currency evidence,
 subtotal/tax/total consistency, line-item consistency, duplicate invoice
 numbers, and manual-review status.
 
-Set `APP_SEMANTIC_SEARCH_ENABLED=true` to create OpenAI embeddings during
-invoice extraction and enable the semantic search endpoint. The portable local
-implementation ranks stored vectors in Python; MongoDB Atlas Vector Search is
-recommended when the collection grows large.
+Set `APP_SEMANTIC_SEARCH_ENABLED=true` to create embeddings. Local search streams stored vectors and retains only the top results; `APP_ATLAS_VECTOR_INDEX` selects MongoDB Atlas Vector Search. Explicit invoice numbers group continuation pages and invoice register rows become separate candidates. Ambiguous grouping requires manual review; use the source-unit API to select a 1,000-page invoice when the source has no clear boundaries.
 
 ## Quality checks
 
@@ -114,9 +126,11 @@ services.
 
 ## Production notes
 
-- Set `APP_ENVIRONMENT=production` and restrict `APP_ALLOWED_HOSTS`.
-- Keep `APP_OPENAI_API_KEY` and Google service-account credentials outside git.
-- Mount `Vision-api.text` into `/app/secrets/Vision-api.text` when using Docker.
-- Put the API behind TLS and an authenticated gateway.
-- For high-volume deployments, run the processing service behind a durable
-  queue/worker and use object storage instead of local disk.
+- Set `APP_ENVIRONMENT=production`, a 32-character `APP_API_KEY`, and restricted `APP_ALLOWED_HOSTS`.
+- Keep `APP_OPENAI_API_KEY`, Mongo passwords, and Google service-account credentials outside git.
+- Mount `secrets/google-vision.json` at `/app/secrets/google-vision.json` when using Docker.
+- Put the API behind TLS and a gateway that shares rate limits across replicas.
+- Run additional worker containers for more processing capacity.
+- Run one or more `worker` instances separately from API replicas.
+- Run extra worker containers for more processing capacity.
+- Replace local volume storage with object storage for multi-host deployments.

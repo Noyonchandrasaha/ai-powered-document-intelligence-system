@@ -39,9 +39,12 @@ def _service() -> tuple[DocumentProcessingService, MagicMock, MagicMock]:
     documents.get_document = AsyncMock(return_value=_document())
     documents.get_storage_path = AsyncMock(return_value="source.pdf")
     documents.update_document_status = AsyncMock()
+    documents.update_progress = AsyncMock()
 
     processing = MagicMock()
     processing.replace_results = AsyncMock()
+    processing.clear_results = AsyncMock()
+    processing.save_result = AsyncMock()
     processing.add_history = AsyncMock()
 
     service = DocumentProcessingService.__new__(DocumentProcessingService)
@@ -86,7 +89,7 @@ async def test_processing_service_persists_results_and_completed_status(
         total_pages=1,
         error_message=None,
     )
-    processing.replace_results.assert_awaited_once()
+    processing.save_result.assert_awaited_once()
     assert processing.add_history.await_count == 2
 
 

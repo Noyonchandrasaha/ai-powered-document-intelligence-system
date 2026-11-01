@@ -68,11 +68,7 @@ class FakeCollection:
         unit_filter = query.get("unit_id")
         if isinstance(unit_filter, dict):
             requested = unit_filter.get("$in", [])
-            results = [
-                item
-                for item in results
-                if item.get("unit_id") in requested
-            ]
+            results = [item for item in results if item.get("unit_id") in requested]
 
         return FakeCursor(results)
 
@@ -104,9 +100,7 @@ class FakeResponse:
 
 class FakeResponses:
     def __init__(self, parsed: InvoiceAIResult) -> None:
-        self.parse = AsyncMock(
-            return_value=FakeResponse(parsed)
-        )
+        self.parse = AsyncMock(return_value=FakeResponse(parsed))
 
 
 class FakeAsyncOpenAI:
@@ -201,6 +195,8 @@ def test_invoice_extraction_runs_through_full_api_flow(
         "AsyncOpenAI",
         lambda **kwargs: fake_openai,
     )
+    enqueue = AsyncMock(return_value={"job_id": "b" * 32, "status": "queued"})
+    monkeypatch.setattr("app.features.jobs.JobQueue.enqueue", enqueue)
 
     try:
         response = client.post(
@@ -210,13 +206,12 @@ def test_invoice_extraction_runs_through_full_api_flow(
     finally:
         _clear_dependencies(app)
 
-    assert response.status_code == 200
+    assert response.status_code == 202
     payload = response.json()
-    assert len(payload["extraction_id"]) == 32
-    assert payload["result"]["status"] == "not_invoice"
-    fake_openai.responses.parse.assert_awaited_once()
-    assert fake_openai.responses.parse.await_args.kwargs["model"] == "gpt-test"
-    repository.save_extraction.assert_awaited_once()
+    assert len(payload["job_id"]) == 32
+    assert payload["status"] == "queued"
+    enqueue.assert_awaited_once()
+    fake_openai.responses.parse.assert_not_awaited()
 
 
 @pytest.mark.integration
@@ -247,9 +242,7 @@ def test_invoice_extraction_returns_service_unavailable_without_api_key(
         _clear_dependencies(app)
 
     assert response.status_code == 503
-    assert response.json()["error"]["message"] == (
-        "OpenAI integration is not configured."
-    )
+    assert response.json()["error"]["message"] == ("OpenAI integration is not configured.")
     repository.save_extraction.assert_not_awaited()
 
 
@@ -297,4 +290,3 @@ def test_invoice_extraction_rejects_invalid_document_id(
 
     assert response.status_code == 422
     assert response.json()["error"]["code"] == "validation_error"
-

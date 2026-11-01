@@ -19,6 +19,7 @@ from app.features.document_extraction.repository import (
 from app.features.document_extraction.schemas import (
     DocumentStatus,
 )
+from app.features.jobs import JobQueue
 from app.storage.local import get_file_path
 from pymongo.asynchronous.database import AsyncDatabase
 
@@ -35,6 +36,10 @@ class DocumentProcessingService:
     def __init__(self, database: AsyncDatabase[Any]) -> None:
         self.documents = DocumentRepository(database)
         self.processing = ProcessingRepository(database)
+        self.jobs = JobQueue(database)
+
+    async def enqueue_document(self, document_id: str) -> dict[str, Any]:
+        return await self.jobs.enqueue("process", document_id)
 
     async def process_document(
         self,
@@ -50,32 +55,41 @@ class DocumentProcessingService:
             document_id,
             DocumentStatus.PROCESSING,
         )
-        await self.processing.add_history({
-            "document_id": document_id,
-            "status": DocumentStatus.PROCESSING.value,
-            "processed_units": 0,
-            "started_at": started_at,
-            "completed_at": None,
-            "error_message": None,
-        })
+        await self.processing.add_history(
+            {
+                "document_id": document_id,
+                "status": DocumentStatus.PROCESSING.value,
+                "processed_units": 0,
+                "started_at": started_at,
+                "completed_at": None,
+                "error_message": None,
+            }
+        )
 
         try:
             storage_path = await self.documents.get_storage_path(document_id)
-            file_path = (
-                Path(storage_path)
-                if storage_path
-                else get_file_path(document_id)
-            )
+            file_path = Path(storage_path) if storage_path else get_file_path(document_id)
 
             ocr: GoogleVisionOCR | None = None
-            credentials_file = Path(
-                get_settings().google_vision_credentials_file
-            )
+            credentials_file = Path(get_settings().google_vision_credentials_file)
 
             if credentials_file.is_file():
                 ocr = GoogleVisionOCR(credentials_file)
 
             results: list[dict[str, Any]] = []
+            await self.processing.clear_results(document_id)
+
+            async def persist(result: dict[str, Any]) -> None:
+                await self.processing.save_result(document_id, result)
+                # Retain only small summaries; OCR words and source rows stay in MongoDB.
+                results.append(
+                    {
+                        "status": result["status"],
+                        "metadata": result["metadata"],
+                        "error": result.get("error"),
+                    }
+                )
+                await self.documents.update_progress(document_id, len(results))
 
             if ocr is None:
                 async for result in process_document(
@@ -83,7 +97,7 @@ class DocumentProcessingService:
                     file_path,
                     document.file_type,
                 ):
-                    results.append(dict(result))
+                    await persist(dict(result))
             else:
                 async with ocr:
                     async for result in process_document(
@@ -92,16 +106,13 @@ class DocumentProcessingService:
                         document.file_type,
                         ocr,
                     ):
-                        results.append(dict(result))
-
-            await self.processing.replace_results(document_id, results)
+                        await persist(dict(result))
 
             final_status = (
                 DocumentStatus.COMPLETED
-                if results
-                and all(item["status"] == "completed" for item in results)
+                if results and all(item["status"] == "completed" for item in results)
                 else DocumentStatus.PARTIAL
-                if results
+                if any(item["status"] in {"completed", "partial"} for item in results)
                 else DocumentStatus.FAILED
             )
             total_pages = self._total_pages(results)
@@ -113,14 +124,16 @@ class DocumentProcessingService:
                 total_pages=total_pages,
                 error_message=error_message,
             )
-            await self.processing.add_history({
-                "document_id": document_id,
-                "status": final_status.value,
-                "processed_units": len(results),
-                "started_at": started_at,
-                "completed_at": datetime.now(UTC),
-                "error_message": error_message,
-            })
+            await self.processing.add_history(
+                {
+                    "document_id": document_id,
+                    "status": final_status.value,
+                    "processed_units": len(results),
+                    "started_at": started_at,
+                    "completed_at": datetime.now(UTC),
+                    "error_message": error_message,
+                }
+            )
 
             return final_status
 
@@ -136,14 +149,16 @@ class DocumentProcessingService:
                 DocumentStatus.FAILED,
                 error_message=message,
             )
-            await self.processing.add_history({
-                "document_id": document_id,
-                "status": DocumentStatus.FAILED.value,
-                "processed_units": 0,
-                "started_at": started_at,
-                "completed_at": datetime.now(UTC),
-                "error_message": message,
-            })
+            await self.processing.add_history(
+                {
+                    "document_id": document_id,
+                    "status": DocumentStatus.FAILED.value,
+                    "processed_units": 0,
+                    "started_at": started_at,
+                    "completed_at": datetime.now(UTC),
+                    "error_message": message,
+                }
+            )
             return DocumentStatus.FAILED
 
     @staticmethod

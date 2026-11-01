@@ -1,4 +1,3 @@
-
 """Source-backed validation for AI invoice extraction."""
 
 import json
@@ -37,9 +36,7 @@ AMOUNT_FIELDS = {
     "amount",
 }
 
-AMOUNT_PATTERN = re.compile(
-    r"-?(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?"
-)
+AMOUNT_PATTERN = re.compile(r"-?(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?")
 
 NUMBER_IN_TEXT = re.compile(
     r"(?<![\w.,])"
@@ -91,24 +88,15 @@ def _load_source_records(
         try:
             record = json.loads(line)
         except json.JSONDecodeError as exc:
-            raise InvoiceValidationError(
-                "Invalid JSONL source record."
-            ) from exc
+            raise InvoiceValidationError("Invalid JSONL source record.") from exc
 
-        if (
-            not isinstance(record, dict)
-            or not record.get("source_id")
-        ):
-            raise InvoiceValidationError(
-                "Invalid source record structure."
-            )
+        if not isinstance(record, dict) or not record.get("source_id"):
+            raise InvoiceValidationError("Invalid source record structure.")
 
         records.append(record)
 
     if not records:
-        raise InvoiceValidationError(
-            "No source records available for validation."
-        )
+        raise InvoiceValidationError("No source records available for validation.")
 
     return records
 
@@ -136,7 +124,6 @@ def _verify_source_evidence(
         return None
 
     for record in records:
-
         if has_page:
             if record.get("kind") != "page":
                 continue
@@ -146,10 +133,8 @@ def _verify_source_evidence(
 
             original_text = record.get("text")
 
-            if (
-                isinstance(original_text, str)
-                and _normalize_text(quotation)
-                in _normalize_text(original_text)
+            if isinstance(original_text, str) and _normalize_text(quotation) in _normalize_text(
+                original_text
             ):
                 return quotation
 
@@ -164,10 +149,7 @@ def _verify_source_evidence(
                 continue
 
             for cell in record.get("cells", []):
-                if (
-                    cell.get("coordinate")
-                    != evidence.cell_reference
-                ):
+                if cell.get("coordinate") != evidence.cell_reference:
                     continue
 
                 original_value = cell.get("value")
@@ -175,10 +157,7 @@ def _verify_source_evidence(
                 if original_value is None:
                     continue
 
-                if (
-                    _normalize_text(quotation)
-                    in _normalize_text(str(original_value))
-                ):
+                if _normalize_text(quotation) in _normalize_text(str(original_value)):
                     return quotation
 
     return None
@@ -201,15 +180,12 @@ def _verify_numeric_value(
         return False
 
     for match in NUMBER_IN_TEXT.finditer(source_text):
-
         # A percentage is not automatically a tax amount.
-        if source_text[match.end():].lstrip().startswith("%"):
+        if source_text[match.end() :].lstrip().startswith("%"):
             continue
 
         try:
-            actual = Decimal(
-                match.group(1).replace(",", "")
-            )
+            actual = Decimal(match.group(1).replace(",", ""))
         except InvalidOperation:
             continue
 
@@ -324,17 +300,12 @@ def _verify_currency(
         return False
 
     for alias in aliases:
-
         if not alias.isascii():
             if alias in source_text:
                 return True
             continue
 
-        pattern = (
-            r"(?<![A-Za-z])"
-            + re.escape(alias)
-            + r"(?![A-Za-z])"
-        )
+        pattern = r"(?<![A-Za-z])" + re.escape(alias) + r"(?![A-Za-z])"
 
         if re.search(
             pattern,
@@ -372,11 +343,7 @@ def _verify_field_value(
             source_text,
         )
 
-    return (
-        bool(value.strip())
-        and _normalize_text(value)
-        in _normalize_text(source_text)
-    )
+    return bool(value.strip()) and _normalize_text(value) in _normalize_text(source_text)
 
 
 def _parse_amount(value: str | None) -> Decimal | None:
@@ -401,19 +368,10 @@ def _financial_consistency_errors(
 
     if subtotal is not None and tax is not None and total is not None:
         if subtotal + tax != total:
-            errors.append(
-                "Invoice total does not equal subtotal plus tax."
-            )
+            errors.append("Invoice total does not equal subtotal plus tax.")
 
-    line_amounts = [
-        _parse_amount(item.amount)
-        for item in invoice.line_items
-    ]
-    confirmed_line_amounts = [
-        amount
-        for amount in line_amounts
-        if amount is not None
-    ]
+    line_amounts = [_parse_amount(item.amount) for item in invoice.line_items]
+    confirmed_line_amounts = [amount for amount in line_amounts if amount is not None]
 
     if (
         subtotal is not None
@@ -421,9 +379,7 @@ def _financial_consistency_errors(
         and len(confirmed_line_amounts) == len(line_amounts)
         and sum(confirmed_line_amounts, Decimal("0")) != subtotal
     ):
-        errors.append(
-            "Line item amounts do not equal invoice subtotal."
-        )
+        errors.append("Line item amounts do not equal invoice subtotal.")
 
     for index, item in enumerate(invoice.line_items):
         quantity = _parse_amount(item.quantity)
@@ -437,11 +393,40 @@ def _financial_consistency_errors(
             and quantity * unit_price != amount
         ):
             errors.append(
-                f"Line item {index} amount does not equal "
-                "quantity multiplied by unit price."
+                f"Line item {index} amount does not equal quantity multiplied by unit price."
             )
 
     return errors
+
+
+def validate_manual_invoice(invoice: InvoiceData) -> tuple[list[str], list[str]]:
+    """Validate human input without requiring machine-generated source evidence."""
+    missing = [name for name in SCALAR_FIELDS if not getattr(invoice, name)]
+    if not invoice.line_items:
+        missing.append("line_items")
+    errors: list[str] = []
+    for name in AMOUNT_FIELDS & set(SCALAR_FIELDS):
+        value = getattr(invoice, name)
+        if value is not None and (
+            not AMOUNT_PATTERN.fullmatch(value) or _parse_amount(value) is None
+        ):
+            errors.append(f"Invalid numeric value: {name}.")
+    for index, item in enumerate(invoice.line_items):
+        for name in ("description", "quantity", "unit_price", "amount"):
+            value = getattr(item, name)
+            if value is None or not value.strip():
+                missing.append(f"line_items[{index}].{name}")
+            elif name != "description" and not AMOUNT_PATTERN.fullmatch(value):
+                errors.append(f"Invalid numeric value: line_items[{index}].{name}.")
+    if invoice.invoice_date:
+        try:
+            date.fromisoformat(invoice.invoice_date)
+        except ValueError:
+            errors.append("Invalid invoice date; expected YYYY-MM-DD.")
+    if invoice.currency and invoice.currency not in CURRENCY_ALIASES:
+        errors.append("Unsupported currency code.")
+    errors.extend(_financial_consistency_errors(invoice))
+    return missing, errors
 
 
 def _validate_field(
@@ -455,20 +440,9 @@ def _validate_field(
     entries = evidence_map.get(field_path, [])
 
     if value is None:
+        is_uncertain = incomplete or any(entry.status != FieldStatus.MISSING for entry in entries)
 
-        is_uncertain = (
-            incomplete
-            or any(
-                entry.status != FieldStatus.MISSING
-                for entry in entries
-            )
-        )
-
-        field_status = (
-            FieldStatus.UNCERTAIN
-            if is_uncertain
-            else FieldStatus.MISSING
-        )
+        field_status = FieldStatus.UNCERTAIN if is_uncertain else FieldStatus.MISSING
 
         reason = (
             "Value unavailable or source extraction incomplete."
@@ -476,18 +450,9 @@ def _validate_field(
             else "Value not found in available source."
         )
 
-    elif (
-        not entries
-        or any(
-            entry.status != FieldStatus.EXTRACTED
-            for entry in entries
-        )
-    ):
+    elif not entries or any(entry.status != FieldStatus.EXTRACTED for entry in entries):
         field_status = FieldStatus.UNCERTAIN
-        reason = (
-            "Extracted value has missing, conflicting, "
-            "or invalid evidence."
-        )
+        reason = "Extracted value has missing, conflicting, or invalid evidence."
 
     else:
         verified_entries: list[FieldEvidence] = []
@@ -498,13 +463,10 @@ def _validate_field(
                 records,
             )
 
-            if (
-                source_text is not None
-                and _verify_field_value(
-                    field_path,
-                    value,
-                    source_text,
-                )
+            if source_text is not None and _verify_field_value(
+                field_path,
+                value,
+                source_text,
             ):
                 verified_entries.append(evidence)
 
@@ -521,10 +483,7 @@ def _validate_field(
 
         field_status = FieldStatus.UNCERTAIN
 
-        reason = (
-            "Value or source evidence could not be "
-            "verified against original document content."
-        )
+        reason = "Value or source evidence could not be verified against original document content."
 
     # Never preserve unsupported model-generated values.
     return None, FieldEvidence(
@@ -550,13 +509,8 @@ def validate_invoice_extraction(
     The original AI result is not modified.
     """
 
-    if (
-        not document_id
-        or document_id != context.document_id
-    ):
-        raise InvoiceValidationError(
-            "Document ID and context ID do not match."
-        )
+    if not document_id or document_id != context.document_id:
+        raise InvoiceValidationError("Document ID and context ID do not match.")
 
     records = _load_source_records(context)
 
@@ -565,10 +519,7 @@ def validate_invoice_extraction(
             document_id=document_id,
             status=ExtractionStatus.NOT_INVOICE,
             invoice=InvoiceData(
-                **{
-                    field: None
-                    for field in SCALAR_FIELDS
-                },
+                **{field: None for field in SCALAR_FIELDS},
                 line_items=[],
             ),
             evidence=[],
@@ -628,7 +579,6 @@ def validate_invoice_extraction(
     verified_items = []
 
     for index, item in enumerate(invoice.line_items):
-
         for field in (
             "description",
             "quantity",
@@ -669,11 +619,7 @@ def validate_invoice_extraction(
             uncertain_fields.append("subtotal")
 
     for index, item in enumerate(invoice.line_items):
-        if (
-            item.amount is not None
-            and item.quantity is not None
-            and item.unit_price is not None
-        ):
+        if item.amount is not None and item.quantity is not None and item.unit_price is not None:
             expected = _parse_amount(item.quantity)
             price = _parse_amount(item.unit_price)
             actual = _parse_amount(item.amount)
@@ -690,9 +636,7 @@ def validate_invoice_extraction(
     if not invoice.line_items:
         had_line_items = bool(ai_result.invoice.line_items)
         line_items_status = (
-            FieldStatus.UNCERTAIN
-            if had_line_items or context.incomplete
-            else FieldStatus.MISSING
+            FieldStatus.UNCERTAIN if had_line_items or context.incomplete else FieldStatus.MISSING
         )
         line_items_reason = (
             "No line items could be verified against source content."
@@ -717,19 +661,11 @@ def validate_invoice_extraction(
             missing_fields.append("line_items")
 
     # Incomplete or uncertain extraction requires review.
-    needs_review = bool(
-        missing_fields
-        or uncertain_fields
-        or context.incomplete
-    )
+    needs_review = bool(missing_fields or uncertain_fields or context.incomplete)
 
     return InvoiceExtractionResponse(
         document_id=document_id,
-        status=(
-            ExtractionStatus.NEEDS_REVIEW
-            if needs_review
-            else ExtractionStatus.COMPLETED
-        ),
+        status=(ExtractionStatus.NEEDS_REVIEW if needs_review else ExtractionStatus.COMPLETED),
         invoice=invoice,
         evidence=verified_evidence,
         missing_fields=missing_fields,

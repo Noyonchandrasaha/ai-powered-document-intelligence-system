@@ -10,3 +10,7 @@ __pycache__/
 .test-temp-*/
 .pytest-temp/
 .venv/
+.mypy_cache/
+.ruff_cache/
+secrets/
+evaluation-data/

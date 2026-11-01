@@ -1,4 +1,3 @@
-
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any, TypedDict
@@ -30,18 +29,14 @@ def get_pdf_page_count(
     try:
         with pymupdf.open(str(file_path)) as document:  # type: ignore[no-untyped-call]
             if document.needs_pass:
-                raise PDFProcessingError(
-                    "Password-protected PDF is not supported."
-                )
+                raise PDFProcessingError("Password-protected PDF is not supported.")
 
             return int(document.page_count)
 
     except PDFProcessingError:
         raise
     except Exception as exc:
-        raise PDFProcessingError(
-            "Unable to read PDF page count."
-        ) from exc
+        raise PDFProcessingError("Unable to read PDF page count.") from exc
 
 
 def calculate_image_coverage(
@@ -108,35 +103,22 @@ def extract_pdf_pages(
     path = Path(file_path)
 
     if not path.is_file():
-        raise FileNotFoundError(
-            f"PDF file not found: {path}"
-        )
+        raise FileNotFoundError(f"PDF file not found: {path}")
 
     try:
         document = pymupdf.open(str(path))  # type: ignore[no-untyped-call]
     except Exception as exc:
-        raise PDFProcessingError(
-            "Unable to open PDF document."
-        ) from exc
+        raise PDFProcessingError("Unable to open PDF document.") from exc
 
     with document:
-
         if document.needs_pass:
-            raise PDFProcessingError(
-                "Password-protected PDF is not supported."
-            )
+            raise PDFProcessingError("Password-protected PDF is not supported.")
 
         total_pages = document.page_count
-        last_page = (
-            total_pages if end_page is None else end_page
-        )
+        last_page = total_pages if end_page is None else end_page
 
-        if not (
-            1 <= start_page <= last_page <= total_pages
-        ):
-            raise ValueError(
-                "Invalid PDF page range."
-            )
+        if not (1 <= start_page <= last_page <= total_pages):
+            raise ValueError("Invalid PDF page range.")
 
         for page_index in range(
             start_page - 1,
@@ -164,22 +146,16 @@ def extract_pdf_pages(
                     if not content:
                         continue
 
-                    text_blocks.append({
-                        "text": content,
-                        "bbox": [
-                            round(float(value), 2)
-                            for value in block[:4]
-                        ],
-                    })
+                    text_blocks.append(
+                        {
+                            "text": content,
+                            "bbox": [round(float(value), 2) for value in block[:4]],
+                        }
+                    )
 
-                extracted_text = "\n".join(
-                    block["text"]
-                    for block in text_blocks
-                )
+                extracted_text = "\n".join(block["text"] for block in text_blocks)
 
-                image_coverage = calculate_image_coverage(
-                    page
-                )
+                image_coverage = calculate_image_coverage(page)
 
                 page_type, needs_ocr = classify_pdf_page(
                     page,
@@ -213,8 +189,5 @@ def extract_pdf_pages(
                     "text_blocks": [],
                     "image_coverage": 0.0,
                     "needs_ocr": False,
-                    "error": (
-                        "Page extraction failed: "
-                        f"{type(exc).__name__}"
-                    ),
+                    "error": (f"Page extraction failed: {type(exc).__name__}"),
                 }

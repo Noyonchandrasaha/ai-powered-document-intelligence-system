@@ -85,9 +85,7 @@ def _service(
 
     extractor = MagicMock(spec=OpenAIInvoiceExtractor)
     extractor.model = "gpt-test"
-    extractor.extract = AsyncMock(
-        return_value=ai_result or _not_invoice_result()
-    )
+    extractor.extract = AsyncMock(return_value=ai_result or _not_invoice_result())
 
     return InvoiceService(repository, extractor), repository, extractor
 
@@ -168,9 +166,7 @@ async def test_extract_invoice_runs_validate_and_save_workflow() -> None:
     assert outcome.result.status is ExtractionStatus.NOT_INVOICE
     extractor.extract.assert_awaited_once()
     repository.save_extraction.assert_awaited_once()
-    assert repository.save_extraction.await_args.kwargs["model_name"] == (
-        "gpt-test"
-    )
+    assert repository.save_extraction.await_args.kwargs["model_name"] == ("gpt-test")
 
 
 @pytest.mark.unit

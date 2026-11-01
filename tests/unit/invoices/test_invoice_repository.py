@@ -40,6 +40,13 @@ class _Cursor:
     async def to_list(self, length: int) -> list[dict[str, object]]:
         return self.documents[:length]
 
+    def __aiter__(self):
+        async def iterate():
+            for document in self.documents:
+                yield document
+
+        return iterate()
+
 
 def _semantic_repository() -> InvoiceRepository:
     stored = _result().model_dump(mode="json")
@@ -80,6 +87,7 @@ async def test_ensure_indexes_creates_unique_and_lookup_indexes() -> None:
             ],
             name="idx_document_extractions",
         ),
+        call("identity", unique=True),
     ]
 
 

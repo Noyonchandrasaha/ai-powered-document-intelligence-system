@@ -1,6 +1,6 @@
-
 """Application service for AI invoice extraction."""
 
+import hashlib
 import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
@@ -134,14 +134,10 @@ class InvoiceService:
         """
 
         if not document_id.strip():
-            raise InvoiceServiceError(
-                "Document ID is required."
-            )
+            raise InvoiceServiceError("Document ID is required.")
 
         if not source_results:
-            raise InvoiceServiceError(
-                "No document extraction results found."
-            )
+            raise InvoiceServiceError("No document extraction results found.")
 
         if len(source_results) > MAX_SOURCE_UNITS:
             raise InvoiceServiceError(
@@ -154,21 +150,15 @@ class InvoiceService:
 
         for result in source_results:
             if result.get("document_id") != document_id:
-                raise InvoiceServiceError(
-                    "Source belongs to another document."
-                )
+                raise InvoiceServiceError("Source belongs to another document.")
 
             unit_id = result.get("unit_id")
 
             if not isinstance(unit_id, str) or not unit_id:
-                raise InvoiceServiceError(
-                    "Invalid source unit identifier."
-                )
+                raise InvoiceServiceError("Invalid source unit identifier.")
 
             if unit_id in seen_units:
-                raise InvoiceServiceError(
-                    f"Duplicate source unit: {unit_id}"
-                )
+                raise InvoiceServiceError(f"Duplicate source unit: {unit_id}")
 
             seen_units.add(unit_id)
 
@@ -188,8 +178,7 @@ class InvoiceService:
                 incomplete=True,
                 warnings=(
                     *context.warnings,
-                    "Original document processing "
-                    "was incomplete.",
+                    "Original document processing was incomplete.",
                 ),
             )
 
@@ -214,26 +203,16 @@ class InvoiceService:
         """
 
         if extraction_id is not None:
-            if (
-                not extraction_id.strip()
-                or len(extraction_id) > 128
-            ):
-                raise InvoiceServiceError(
-                    "Invalid extraction ID."
-                )
+            if not extraction_id.strip() or len(extraction_id) > 128:
+                raise InvoiceServiceError("Invalid extraction ID.")
 
             # Return the previously stored result
             # when retrying a completed extraction.
-            existing = await self.repository.get_extraction(
-                extraction_id
-            )
+            existing = await self.repository.get_extraction(extraction_id)
 
             if existing is not None:
                 if existing.document_id != document_id:
-                    raise InvoiceServiceError(
-                        "Extraction ID belongs to "
-                        "another document."
-                    )
+                    raise InvoiceServiceError("Extraction ID belongs to another document.")
 
                 return InvoiceExtractionOutcome(
                     extraction_id=extraction_id,
@@ -258,9 +237,7 @@ class InvoiceService:
         )
 
         # Step 2: Extract structured data with OpenAI.
-        ai_result = await self.extractor.extract(
-            context
-        )
+        ai_result = await self.extractor.extract(context)
 
         # Step 3: Validate against original source.
         validated_result = validate_invoice_extraction(
@@ -271,11 +248,7 @@ class InvoiceService:
 
         # An incomplete source cannot establish
         # with certainty that a document is not an invoice.
-        if (
-            context.incomplete
-            and validated_result.status
-            == ExtractionStatus.NOT_INVOICE
-        ):
+        if context.incomplete and validated_result.status == ExtractionStatus.NOT_INVOICE:
             validated_result = validated_result.model_copy(
                 update={
                     "status": ExtractionStatus.NEEDS_REVIEW,
@@ -286,12 +259,11 @@ class InvoiceService:
         duplicate = await self.repository.find_duplicate_invoice(
             document_id,
             validated_result.invoice.invoice_number,
+            validated_result.invoice.supplier_name,
         )
 
         if duplicate is not None:
-            duplicate_message = (
-                "Invoice number already exists for another document."
-            )
+            duplicate_message = "Invoice number already exists for another document."
             uncertain_fields = list(validated_result.uncertain_fields)
             if "invoice_number" not in uncertain_fields:
                 uncertain_fields.append("invoice_number")
@@ -330,6 +302,7 @@ class InvoiceService:
             prompt_version=INVOICE_PROMPT_VERSION,
             source_units=context.source_units,
             embedding=embedding,
+            source_fingerprint=hashlib.sha256(context.content.encode()).hexdigest(),
         )
 
         logger.info(
@@ -351,13 +324,9 @@ class InvoiceService:
         """Retrieve a previously saved extraction."""
 
         if not extraction_id.strip():
-            raise InvoiceServiceError(
-                "Extraction ID is required."
-            )
+            raise InvoiceServiceError("Extraction ID is required.")
 
-        return await self.repository.get_extraction(
-            extraction_id
-        )
+        return await self.repository.get_extraction(extraction_id)
 
     async def get_latest_extraction(
         self,
@@ -366,10 +335,6 @@ class InvoiceService:
         """Retrieve the latest extraction for a document."""
 
         if not document_id.strip():
-            raise InvoiceServiceError(
-                "Document ID is required."
-            )
+            raise InvoiceServiceError("Document ID is required.")
 
-        return await self.repository.get_latest_extraction(
-            document_id
-        )
+        return await self.repository.get_latest_extraction(document_id)

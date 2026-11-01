@@ -14,7 +14,10 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
+from collections import Counter
 from collections.abc import Iterable
+from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any
 
@@ -30,17 +33,25 @@ FIELD_NAMES = (
 )
 
 
-def _normalize(value: Any) -> str | None:
+def _normalize(value: Any, *, numeric: bool = False) -> str | None:
     if value is None:
         return None
-    return " ".join(str(value).strip().casefold().split()) or None
+    text = " ".join(str(value).strip().casefold().split()) or None
+    if numeric and text:
+        try:
+            amount = Decimal(text.replace(",", ""))
+            if amount.is_finite():
+                return str(amount.normalize())
+        except InvalidOperation:
+            pass
+    return text
 
 
 def _line_item_key(item: Any) -> tuple[str | None, ...]:
     if not isinstance(item, dict):
         return (None,)
     return tuple(
-        _normalize(item.get(field))
+        _normalize(item.get(field), numeric=field != "description")
         for field in ("description", "quantity", "unit_price", "amount")
     )
 
@@ -48,16 +59,10 @@ def _line_item_key(item: Any) -> tuple[str | None, ...]:
 def _line_item_scores(expected: Any, actual: Any) -> tuple[int, int, int]:
     expected_list = expected if isinstance(expected, list) else []
     actual_list = actual if isinstance(actual, list) else []
-    expected_items = {
-        _line_item_key(item)
-        for item in expected_list
-    }
-    actual_items = {
-        _line_item_key(item)
-        for item in actual_list
-    }
-    true_positive = len(expected_items & actual_items)
-    return true_positive, len(actual_items), len(expected_items)
+    expected_items = Counter(_line_item_key(item) for item in expected_list)
+    actual_items = Counter(_line_item_key(item) for item in actual_list)
+    true_positive = sum((expected_items & actual_items).values())
+    return true_positive, sum(actual_items.values()), sum(expected_items.values())
 
 
 def evaluate(rows: Iterable[dict[str, Any]]) -> dict[str, Any]:
@@ -70,11 +75,12 @@ def evaluate(rows: Iterable[dict[str, Any]]) -> dict[str, Any]:
         for row in rows:
             expected = row.get("expected", {})
             actual = row.get("actual", {})
-            expected_value = _normalize(expected.get(field))
-            if expected_value is None:
+            if field not in expected:
                 continue
+            numeric = field in {"subtotal", "tax", "total"}
+            expected_value = _normalize(expected.get(field), numeric=numeric)
             labeled += 1
-            if expected_value == _normalize(actual.get(field)):
+            if expected_value == _normalize(actual.get(field), numeric=numeric):
                 correct += 1
         field_metrics[field] = {
             "labeled": labeled,
@@ -86,11 +92,9 @@ def evaluate(rows: Iterable[dict[str, Any]]) -> dict[str, Any]:
     for row in rows:
         expected = row.get("expected", {})
         actual = row.get("actual", {})
-        current_true_positive, current_predicted, current_expected = (
-            _line_item_scores(
-                expected.get("line_items", []),
-                actual.get("line_items", []),
-            )
+        current_true_positive, current_predicted, current_expected = _line_item_scores(
+            expected.get("line_items", []),
+            actual.get("line_items", []),
         )
         true_positive += current_true_positive
         predicted += current_predicted
@@ -104,6 +108,11 @@ def evaluate(rows: Iterable[dict[str, Any]]) -> dict[str, Any]:
     precision = true_positive / predicted if predicted else 0.0
     recall = true_positive / expected_count if expected_count else 0.0
     total = len(rows)
+    times = sorted(
+        float(row["duration_seconds"])
+        for row in rows
+        if isinstance(row.get("duration_seconds"), (int, float))
+    )
     return {
         "documents": total,
         "field_metrics": field_metrics,
@@ -117,6 +126,12 @@ def evaluate(rows: Iterable[dict[str, Any]]) -> dict[str, Any]:
         "status_counts": status_counts,
         "success_rate": status_counts.get("completed", 0) / total if total else 0.0,
         "failure_rate": status_counts.get("failed", 0) / total if total else 0.0,
+        "partial_rate": status_counts.get("partial", 0) / total if total else 0.0,
+        "latency_seconds": {
+            "samples": len(times),
+            "p50": times[math.ceil(len(times) * 0.50) - 1] if times else None,
+            "p95": times[math.ceil(len(times) * 0.95) - 1] if times else None,
+        },
     }
 
 

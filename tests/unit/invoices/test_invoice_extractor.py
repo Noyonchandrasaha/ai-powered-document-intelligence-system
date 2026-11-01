@@ -43,14 +43,10 @@ def _result() -> InvoiceAIResult:
 class FakeClient:
     def __init__(self, response: object) -> None:
         self.response = response
-        self.responses = SimpleNamespace(
-            parse=AsyncMock(return_value=response)
-        )
+        self.responses = SimpleNamespace(parse=AsyncMock(return_value=response))
         self.embeddings = SimpleNamespace(
             create=AsyncMock(
-                return_value=SimpleNamespace(
-                    data=[SimpleNamespace(embedding=[0.1, 0.2, 0.3])]
-                )
+                return_value=SimpleNamespace(data=[SimpleNamespace(embedding=[0.1, 0.2, 0.3])])
             )
         )
 
@@ -126,9 +122,7 @@ async def test_extractor_handles_model_refusal() -> None:
         type="message",
         content=[SimpleNamespace(type="refusal")],
     )
-    client = FakeClient(
-        _response(parsed=_result(), output=[refusal])
-    )
+    client = FakeClient(_response(parsed=_result(), output=[refusal]))
     extractor = OpenAIInvoiceExtractor(client)
 
     with pytest.raises(InvoiceExtractionRefusalError, match="refused"):

@@ -1,6 +1,6 @@
-
 import asyncio
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Iterator
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any, Literal, TypedDict
 
@@ -25,6 +25,26 @@ from app.features.document_extraction.data_processing.pdf import (
 from app.features.document_extraction.schemas import DocumentType
 
 logger = get_logger(__name__)
+
+
+async def _threaded(iterator: Iterator[Any]) -> AsyncIterator[Any]:
+    """Advance CPU/blocking parsers off the event loop, one bounded unit at a time."""
+    sentinel = object()
+    # PyMuPDF's document/page objects are not thread-safe. Every iterator must
+    # be opened, advanced, and closed by the same dedicated parser thread.
+    with ThreadPoolExecutor(max_workers=1, thread_name_prefix="document-parser") as executor:
+        try:
+            while True:
+                item = await asyncio.get_running_loop().run_in_executor(
+                    executor, next, iterator, sentinel
+                )
+                if item is sentinel:
+                    return
+                yield item
+        finally:
+            close = getattr(iterator, "close", None)
+            if close:
+                await asyncio.get_running_loop().run_in_executor(executor, close)
 
 
 ResultStatus = Literal["completed", "partial", "failed"]
@@ -71,9 +91,9 @@ async def _process_pdf(
     ocr: GoogleVisionOCR | None,
 ) -> AsyncIterator[ProcessingResult]:
 
-    total_pages = get_pdf_page_count(file_path)
+    total_pages = await asyncio.to_thread(get_pdf_page_count, file_path)
 
-    for page in extract_pdf_pages(file_path):
+    async for page in _threaded(extract_pdf_pages(file_path)):
         page_number = page["page_number"]
         native_text = page["text"]
 
@@ -81,9 +101,7 @@ async def _process_pdf(
             "document_id": document_id,
             "unit_id": f"page:{page_number}",
             "kind": "page",
-            "status": (
-                "failed" if page["error"] else "completed"
-            ),
+            "status": ("failed" if page["error"] else "completed"),
             "extraction_method": "pymupdf",
             "page_number": page_number,
             "sheet_name": None,
@@ -114,13 +132,8 @@ async def _process_pdf(
 
         if page["needs_ocr"]:
             if ocr is None:
-                result["status"] = (
-                    "partial" if native_text else "failed"
-                )
-                result["error"] = (
-                    "OCR required but Google Vision "
-                    "client is not configured."
-                )
+                result["status"] = "partial" if native_text else "failed"
+                result["error"] = "OCR required but Google Vision client is not configured."
 
             else:
                 result["metadata"]["ocr_attempted"] = True
@@ -134,31 +147,17 @@ async def _process_pdf(
                     result["ocr_text"] = ocr_result["text"]
                     result["words"] = ocr_result["words"]
 
-                    result["metadata"]["ocr_confidence"] = (
-                        ocr_result["confidence"]
-                    )
-                    result["metadata"]["ocr_image_width"] = (
-                        ocr_result["image_width"]
-                    )
-                    result["metadata"]["ocr_image_height"] = (
-                        ocr_result["image_height"]
-                    )
-                    result["metadata"]["ocr_coordinate_space"] = (
-                        "rendered_image_pixels"
-                    )
+                    result["metadata"]["ocr_confidence"] = ocr_result["confidence"]
+                    result["metadata"]["ocr_image_width"] = ocr_result["image_width"]
+                    result["metadata"]["ocr_image_height"] = ocr_result["image_height"]
+                    result["metadata"]["ocr_coordinate_space"] = "rendered_image_pixels"
 
                     if native_text:
-                        result["extraction_method"] = (
-                            "pymupdf+google_vision"
-                        )
-                        result["metadata"]["requires_text_merge"] = (
-                            bool(ocr_result["text"])
-                        )
+                        result["extraction_method"] = "pymupdf+google_vision"
+                        result["metadata"]["requires_text_merge"] = bool(ocr_result["text"])
                     else:
                         result["text"] = ocr_result["text"]
-                        result["extraction_method"] = (
-                            "google_vision"
-                        )
+                        result["extraction_method"] = "google_vision"
 
                 except Exception as exc:
                     logger.exception(
@@ -167,13 +166,8 @@ async def _process_pdf(
                         page_number=page_number,
                         error=str(exc),
                     )
-                    result["status"] = (
-                        "partial" if native_text else "failed"
-                    )
-                    result["error"] = (
-                        "Google Vision OCR failed: "
-                        f"{type(exc).__name__}"
-                    )
+                    result["status"] = "partial" if native_text else "failed"
+                    result["error"] = f"Google Vision OCR failed: {type(exc).__name__}"
 
         yield result
         await asyncio.sleep(0)
@@ -186,10 +180,7 @@ async def _process_image(
 ) -> AsyncIterator[ProcessingResult]:
 
     if ocr is None:
-        raise ProcessingPipelineError(
-            "Google Vision OCR is required "
-            "for image processing."
-        )
+        raise ProcessingPipelineError("Google Vision OCR is required for image processing.")
 
     async for page in extract_image_pages(
         file_path=file_path,
@@ -199,11 +190,7 @@ async def _process_image(
             "document_id": document_id,
             "unit_id": f"page:{page['page_number']}",
             "kind": "page",
-            "status": (
-                "completed"
-                if page["status"] == "completed"
-                else "failed"
-            ),
+            "status": ("completed" if page["status"] == "completed" else "failed"),
             "extraction_method": "google_vision",
             "page_number": page["page_number"],
             "sheet_name": None,
@@ -233,27 +220,22 @@ async def _process_excel(
     chunk_size: int,
 ) -> AsyncIterator[ProcessingResult]:
 
-    for chunk in extract_excel_chunks(
-        file_path=file_path,
-        chunk_size=chunk_size,
+    async for chunk in _threaded(
+        extract_excel_chunks(
+            file_path=file_path,
+            chunk_size=chunk_size,
+        )
     ):
         sheet_index = chunk["sheet_index"]
         start_row = chunk["start_row"]
 
-        unit_id = (
-            f"sheet:{sheet_index}:"
-            f"row:{start_row if start_row is not None else 'empty'}"
-        )
+        unit_id = f"sheet:{sheet_index}:row:{start_row if start_row is not None else 'empty'}"
 
         yield {
             "document_id": document_id,
             "unit_id": unit_id,
             "kind": "sheet_chunk",
-            "status": (
-                "completed"
-                if chunk["status"] == "completed"
-                else "failed"
-            ),
+            "status": ("completed" if chunk["status"] == "completed" else "failed"),
             "extraction_method": "excel_parser",
             "page_number": None,
             "sheet_name": chunk["sheet_name"],
@@ -282,22 +264,19 @@ async def _process_csv(
     chunk_size: int,
 ) -> AsyncIterator[ProcessingResult]:
 
-    for chunk_index, chunk in enumerate(
+    chunk_index = 0
+    async for chunk in _threaded(
         extract_csv_chunks(
             file_path=file_path,
             chunk_size=chunk_size,
-        ),
-        start=1,
+        )
     ):
+        chunk_index += 1
         yield {
             "document_id": document_id,
             "unit_id": f"csv:chunk:{chunk_index}",
             "kind": "csv_chunk",
-            "status": (
-                "completed"
-                if chunk["status"] == "completed"
-                else "failed"
-            ),
+            "status": ("completed" if chunk["status"] == "completed" else "failed"),
             "extraction_method": "csv_parser",
             "page_number": None,
             "sheet_name": None,
@@ -344,14 +323,10 @@ async def process_document(
         raise ValueError("Document ID is required.")
 
     if not path.is_file():
-        raise FileNotFoundError(
-            f"Document not found: {path}"
-        )
+        raise FileNotFoundError(f"Document not found: {path}")
 
     if excel_chunk_size < 1 or csv_chunk_size < 1:
-        raise ValueError(
-            "Chunk sizes must be positive."
-        )
+        raise ValueError("Chunk sizes must be positive.")
 
     if file_type == DocumentType.PDF:
         async for result in _process_pdf(
@@ -393,6 +368,4 @@ async def process_document(
             yield result
 
     else:
-        raise ProcessingPipelineError(
-            f"Unsupported document type: {file_type}"
-        )
+        raise ProcessingPipelineError(f"Unsupported document type: {file_type}")

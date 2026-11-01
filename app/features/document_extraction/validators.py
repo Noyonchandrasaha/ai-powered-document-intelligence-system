@@ -36,9 +36,7 @@ def validate_extension(filename: str | None) -> DocumentType:
     document_type = SUPPORTED_EXTENSIONS.get(extension)
 
     if document_type is None:
-        raise DocumentValidationError(
-            f"Unsupported file extension: {extension or 'none'}"
-        )
+        raise DocumentValidationError(f"Unsupported file extension: {extension or 'none'}")
     return document_type
 
 
@@ -121,9 +119,7 @@ def validate_file_integrity(file_path: Path, document_type: DocumentType) -> Non
         if document_type == DocumentType.PDF:
             with pymupdf.open(file_path) as document:  # type: ignore[no-untyped-call]
                 if document.needs_pass:
-                    raise DocumentValidationError(
-                        "Password-protected PDFs are not supported."
-                    )
+                    raise DocumentValidationError("Password-protected PDFs are not supported.")
                 if document.page_count == 0:
                     raise DocumentValidationError("PDF contains no pages.")
         elif document_type in {

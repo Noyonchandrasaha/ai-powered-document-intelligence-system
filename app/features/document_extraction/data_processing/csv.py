@@ -1,4 +1,3 @@
-
 import codecs
 import csv
 from collections.abc import Iterator
@@ -48,15 +47,10 @@ def detect_csv_encoding(path: Path) -> str:
         return "utf-8-sig"
 
     if b"\x00" in sample:
-        raise CSVProcessingError(
-            "Binary data or UTF-16 without BOM; "
-            "specify encoding explicitly."
-        )
+        raise CSVProcessingError("Binary data or UTF-16 without BOM; specify encoding explicitly.")
 
     try:
-        decoder = codecs.getincrementaldecoder(
-            "utf-8"
-        )(errors="strict")
+        decoder = codecs.getincrementaldecoder("utf-8")(errors="strict")
 
         decoder.decode(sample, final=False)
 
@@ -68,9 +62,7 @@ def detect_csv_encoding(path: Path) -> str:
             return "cp1252"
 
         except UnicodeDecodeError as exc:
-            raise CSVProcessingError(
-                "Unknown encoding; specify it explicitly."
-            ) from exc
+            raise CSVProcessingError("Unknown encoding; specify it explicitly.") from exc
 
 
 def _build_chunk(
@@ -112,27 +104,16 @@ def extract_csv_chunks(
     path = Path(file_path)
 
     if not path.is_file():
-        raise FileNotFoundError(
-            f"CSV file not found: {path}"
-        )
+        raise FileNotFoundError(f"CSV file not found: {path}")
 
     if path.suffix.lower() != ".csv":
-        raise CSVProcessingError(
-            "Expected a .csv file."
-        )
+        raise CSVProcessingError("Expected a .csv file.")
 
     if chunk_size < 1 or max_columns < 1:
-        raise ValueError(
-            "chunk_size and max_columns must be positive."
-        )
+        raise ValueError("chunk_size and max_columns must be positive.")
 
-    if delimiter is not None and (
-        len(delimiter) != 1
-        or delimiter in '\r\n"'
-    ):
-        raise ValueError(
-            "Invalid CSV delimiter."
-        )
+    if delimiter is not None and (len(delimiter) != 1 or delimiter in '\r\n"'):
+        raise ValueError("Invalid CSV delimiter.")
 
     try:
         selected_encoding = encoding or detect_csv_encoding(path)
@@ -149,9 +130,7 @@ def extract_csv_chunks(
             file_path=str(path),
             error=str(exc),
         )
-        raise CSVProcessingError(
-            f"Unable to detect CSV encoding: {type(exc).__name__}"
-        ) from exc
+        raise CSVProcessingError(f"Unable to detect CSV encoding: {type(exc).__name__}") from exc
 
     try:
         with path.open(
@@ -160,13 +139,10 @@ def extract_csv_chunks(
             errors="strict",
             newline="",
         ) as stream:
-
             sample = stream.read(SAMPLE_CHARS)
 
             if not sample.strip():
-                raise CSVProcessingError(
-                    "CSV contains no content."
-                )
+                raise CSVProcessingError("CSV contains no content.")
 
             stream.seek(0)
 
@@ -226,24 +202,16 @@ def extract_csv_chunks(
                             f"limit is {max_columns}."
                         )
 
-                    row_bytes = sum(
-                        len(value.encode("utf-8"))
-                        for value in values
-                    )
+                    row_bytes = sum(len(value.encode("utf-8")) for value in values)
 
                     if row_bytes > MAX_CHUNK_TEXT_BYTES:
-                        raise CSVProcessingError(
-                            f"Row {record_number} "
-                            "exceeds result size limit."
-                        )
+                        raise CSVProcessingError(f"Row {record_number} exceeds result size limit.")
 
                     # Flush before exceeding chunk limits.
                     if batch and (
                         len(batch) >= chunk_size
-                        or cell_count + len(values)
-                        > MAX_CHUNK_CELLS
-                        or text_bytes + row_bytes
-                        > MAX_CHUNK_TEXT_BYTES
+                        or cell_count + len(values) > MAX_CHUNK_CELLS
+                        or text_bytes + row_bytes > MAX_CHUNK_TEXT_BYTES
                     ):
                         yield _build_chunk(
                             batch,
@@ -263,16 +231,12 @@ def extract_csv_chunks(
 
                     if len(values) != expected_columns:
                         warnings.append(
-                            f"Expected {expected_columns} "
-                            f"columns; found {len(values)}."
+                            f"Expected {expected_columns} columns; found {len(values)}."
                         )
 
                     cells = [
                         {
-                            "coordinate": (
-                                f"{get_column_letter(column)}"
-                                f"{record_number}"
-                            ),
+                            "coordinate": (f"{get_column_letter(column)}{record_number}"),
                             "value": value,
                             "data_type": "s",
                             "formula": None,
@@ -284,12 +248,14 @@ def extract_csv_chunks(
                         )
                     ]
 
-                    batch.append({
-                        "row_number": record_number,
-                        "line_number": reader.line_num,
-                        "cells": cells,
-                        "warnings": warnings,
-                    })
+                    batch.append(
+                        {
+                            "row_number": record_number,
+                            "line_number": reader.line_num,
+                            "cells": cells,
+                            "warnings": warnings,
+                        }
+                    )
 
                     cell_count += len(values)
                     text_bytes += row_bytes
@@ -304,16 +270,13 @@ def extract_csv_chunks(
                     completed_chunks += 1
 
                 if completed_chunks == 0:
-                    raise CSVProcessingError(
-                        "CSV contains no data records."
-                    )
+                    raise CSVProcessingError("CSV contains no data records.")
 
             except (
                 csv.Error,
                 UnicodeError,
                 CSVProcessingError,
             ) as exc:
-
                 logger.exception(
                     "csv_parsing_failed",
                     file_path=str(path),
@@ -336,10 +299,7 @@ def extract_csv_chunks(
                     "start_row": None,
                     "end_row": None,
                     "rows": [],
-                    "error": (
-                        "CSV parsing failed near line "
-                        f"{reader.line_num}: {exc}"
-                    ),
+                    "error": (f"CSV parsing failed near line {reader.line_num}: {exc}"),
                 }
 
     except (LookupError, OSError, UnicodeError) as exc:
@@ -348,7 +308,4 @@ def extract_csv_chunks(
             file_path=str(path),
             error=str(exc),
         )
-        raise CSVProcessingError(
-            "Unable to open CSV: "
-            f"{type(exc).__name__}"
-        ) from exc
+        raise CSVProcessingError(f"Unable to open CSV: {type(exc).__name__}") from exc

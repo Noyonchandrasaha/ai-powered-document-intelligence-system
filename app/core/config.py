@@ -29,10 +29,16 @@ class Settings(BaseSettings):
     openai_model: str = "gpt-5.5"
     openai_embedding_model: str = "text-embedding-3-small"
     semantic_search_enabled: bool = False
+    atlas_vector_index: str | None = None
     google_vision_credentials_file: str = "Vision-api.text"
     allowed_origins: list[str] = Field(default_factory=list)
     docs_enabled: bool = False
     allowed_hosts: list[str] = Field(default_factory=lambda: ["*"])
+    api_key: str | None = Field(default=None, repr=False)
+    rate_limit_per_minute: int = Field(default=120, ge=1)
+    worker_poll_seconds: float = Field(default=1.0, gt=0)
+    job_lease_seconds: int = Field(default=120, ge=30)
+    job_max_attempts: int = Field(default=3, ge=1, le=10)
 
     @field_validator("api_prefix")
     @classmethod
@@ -59,6 +65,10 @@ class Settings(BaseSettings):
     def validate_production_hosts(self) -> "Settings":
         if self.is_production and "*" in self.allowed_hosts:
             raise ValueError("APP_ALLOWED_HOSTS must be restricted in production")
+        if self.environment in {"staging", "production"} and (
+            not self.api_key or len(self.api_key) < 32
+        ):
+            raise ValueError("Staging/production requires APP_API_KEY with at least 32 characters")
         return self
 
 

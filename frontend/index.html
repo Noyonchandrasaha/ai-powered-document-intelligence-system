@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#f5f6f3">
+  <title>Ledgerline — Document Intelligence</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/ui/styles.css">
+  <script src="/ui/app.js" defer></script>
+</head>
+<body>
+  <aside class="sidebar">
+    <a class="brand" href="#overview" aria-label="Ledgerline home"><span class="brand-icon"><svg viewBox="0 0 24 24" fill="none"><path d="M5 4.5h14v15H5zM8.5 8h7M8.5 11.5h7M8.5 15h4" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/><path d="m16 16 1.4 1.4L20 14.8" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg></span><span>ledgerline<span class="brand-dot">.</span></span></a>
+    <div class="workspace-label">WORKSPACE</div>
+    <nav class="side-nav" aria-label="Main navigation">
+      <a class="nav-item active" href="#overview" data-view="overview"><span class="nav-icon">◫</span> Overview</a>
+      <a class="nav-item" href="#documents" data-view="documents"><span class="nav-icon">▤</span> Documents <span class="nav-count" id="navDocCount">0</span></a>
+      <a class="nav-item" href="#invoices" data-view="invoices"><span class="nav-icon">▧</span> Invoices</a>
+      <a class="nav-item" href="#reconcile" data-view="reconcile"><span class="nav-icon">⇄</span> Reconcile</a>
+    </nav>
+    <div class="sidebar-spacer"></div>
+    <div class="sidebar-note"><span class="note-dot"></span><div><strong>Processing engine</strong><span>Connected to API</span></div></div>
+    <button class="profile" id="settingsOpen"><span class="avatar">LL</span><span class="profile-text"><strong>Workspace admin</strong><span>API settings</span></span><span class="profile-more">···</span></button>
+  </aside>
+
+  <main class="main-content">
+    <header class="topbar"><div class="breadcrumb"><span>Workspace</span><span class="crumb-sep">/</span><strong id="crumbPage">Overview</strong></div><div class="top-actions"><span class="today-label" id="todayLabel"></span><button class="icon-btn" id="refreshButton" title="Refresh data" aria-label="Refresh data"><svg viewBox="0 0 24 24" fill="none"><path d="M20 7v5h-5M4.6 10a7.5 7.5 0 0 1 12.7-3L20 12M4 17v-5h5m10.4 2a7.5 7.5 0 0 1-12.7 3L4 12" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg></button><button class="top-avatar">LL</button></div></header>
+
+    <section class="page-heading" id="overview"><div><div class="eyebrow"><span class="eyebrow-line"></span> DOCUMENT INTELLIGENCE</div><h1>Good morning<span class="heading-period">.</span></h1><p class="subtitle">Here’s what’s happening across your documents today.</p></div><button class="btn btn-dark" id="uploadTop"><span class="plus">＋</span> Upload documents</button></section>
+
+    <section class="stats-grid" aria-label="Document statistics">
+      <article class="stat-card"><div class="stat-top"><span class="stat-label">Total documents</span><span class="stat-symbol pale-green">▤</span></div><div class="stat-bottom"><strong id="statTotal">—</strong><span class="stat-foot">All documents</span></div></article>
+      <article class="stat-card"><div class="stat-top"><span class="stat-label">Processing</span><span class="stat-symbol pale-blue">◷</span></div><div class="stat-bottom"><strong id="statProcessing">—</strong><span class="stat-foot">In the queue</span></div></article>
+      <article class="stat-card"><div class="stat-top"><span class="stat-label">Ready to review</span><span class="stat-symbol pale-amber">✳</span></div><div class="stat-bottom"><strong id="statReview">—</strong><span class="stat-foot">Need your attention</span></div></article>
+      <article class="stat-card"><div class="stat-top"><span class="stat-label">Invoices extracted</span><span class="stat-symbol pale-purple">▧</span></div><div class="stat-bottom"><strong id="statInvoices">—</strong><span class="stat-foot">Structured records</span></div></article>
+    </section>
+
+    <section class="content-grid">
+      <article class="panel upload-panel" id="uploadSection"><div class="panel-heading"><div><h2>Upload documents</h2><p>Drop your files here or choose from your computer.</p></div><span class="panel-icon">↥</span></div><button type="button" class="dropzone" id="dropzone"><span class="upload-icon"><svg viewBox="0 0 24 24" fill="none"><path d="M12 16V4m0 0L7.5 8.5M12 4l4.5 4.5M5 14v4.5A1.5 1.5 0 0 0 6.5 20h11a1.5 1.5 0 0 0 1.5-1.5V14" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg></span><strong>Drop files to upload</strong><span>or <span class="browse-link">browse files</span></span><small>PDF, JPG, PNG, TIFF, XLSX, XLS, CSV <span>·</span> Up to 50 MB each</small></button><input id="fileInput" type="file" accept=".pdf,.jpg,.jpeg,.png,.tif,.tiff,.xlsx,.xls,.csv" multiple hidden><div id="uploadProgress" class="upload-progress hidden"><div class="progress-label"><span id="uploadLabel">Uploading files…</span><strong id="uploadPercent">0%</strong></div><div class="progress-track"><span id="uploadProgressBar"></span></div></div><div class="upload-foot"><span><i></i> Files are encrypted and stored securely</span><span>Multiple files supported</span></div></article>
+      <article class="panel activity-panel"><div class="panel-heading"><div><h2>Processing activity</h2><p>Latest updates from your workspace.</p></div><button class="text-button" data-nav="documents">View all <span>↗</span></button></div><div id="activityList" class="activity-list"><div class="empty-state compact"><span>◷</span><p>Recent activity will appear here</p></div></div></article>
+    </section>
+
+    <section class="panel documents-panel" id="documents"><div class="documents-heading"><div><div class="title-row"><h2>Recent documents</h2><span class="count-pill" id="documentsCount">0</span></div><p>Review, extract and manage your uploaded documents.</p></div><div class="table-actions"><label class="search-box"><svg viewBox="0 0 24 24" fill="none"><circle cx="10.8" cy="10.8" r="6.3" stroke="currentColor" stroke-width="1.7"/><path d="m15.5 15.5 4 4" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg><input id="docSearch" placeholder="Search documents…" aria-label="Search documents"></label><select id="docStatusFilter" class="filter-select" aria-label="Filter document status"><option value="">All status</option><option value="pending">Pending</option><option value="processing">Processing</option><option value="completed">Completed</option><option value="partial">Partial</option><option value="failed">Failed</option></select></div></div><div class="table-wrap"><table><thead><tr><th>DOCUMENT</th><th>TYPE</th><th>UPLOADED</th><th>STATUS</th><th>PROGRESS</th><th></th></tr></thead><tbody id="documentsBody"><tr><td colspan="6" class="table-empty">Loading documents…</td></tr></tbody></table></div><div class="table-footer"><span id="tableFoot">Showing 0 documents</span><button class="text-button" id="loadMore">Refresh list <span>↻</span></button></div></section>
+
+    <section class="bottom-grid">
+      <article class="panel invoice-panel" id="invoices"><div class="panel-heading"><div><h2>Invoice review</h2><p>Extracted invoices that need attention.</p></div><button class="text-button" data-nav="invoices">Search invoices <span>↗</span></button></div><div class="invoice-search-row"><label class="search-box wide"><svg viewBox="0 0 24 24" fill="none"><circle cx="10.8" cy="10.8" r="6.3" stroke="currentColor" stroke-width="1.7"/><path d="m15.5 15.5 4 4" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg><input id="invoiceSearch" placeholder="Search invoice, supplier or customer…" aria-label="Search invoices"></label><button class="btn btn-light" id="invoiceSearchButton">Search</button></div><div id="invoiceList" class="invoice-list"><div class="empty-state compact"><span>▧</span><p>Search to find extracted invoices</p></div></div></article>
+      <article class="panel reconcile-panel" id="reconcile"><div class="panel-heading"><div><h2>Cross verification</h2><p>Compare invoices across two documents.</p></div><span class="panel-icon">⇄</span></div><label class="field-label" for="leftDoc">SOURCE DOCUMENT</label><select id="leftDoc" class="form-control"><option value="">Select a document…</option></select><div class="versus"><span></span><b>VS</b><span></span></div><label class="field-label" for="rightDoc">COMPARISON DOCUMENT</label><select id="rightDoc" class="form-control"><option value="">Select a document…</option></select><button id="reconcileButton" class="btn btn-dark full-btn">Compare documents <span>→</span></button><div id="reconcileResult" class="reconcile-result hidden"></div></article>
+    </section>
+    <footer class="footer"><span>Ledgerline <span class="brand-dot">·</span> Document intelligence workspace</span><span id="apiIndicator"><i></i> Connecting to API</span></footer>
+  </main>
+
+  <div class="toast-stack" id="toastStack" aria-live="polite"></div>
+
+  <div class="modal-backdrop hidden" id="documentModal"><section class="modal large-modal" role="dialog" aria-modal="true" aria-labelledby="detailTitle"><div class="modal-header"><div><div class="eyebrow"><span class="eyebrow-line"></span> DOCUMENT DETAILS</div><h2 id="detailTitle">Document</h2><p id="detailMeta"></p></div><button class="icon-btn close-modal" data-close="documentModal" aria-label="Close">×</button></div><div class="modal-content" id="documentDetail"><div class="empty-state">Loading document…</div></div></section></div>
+
+  <div class="modal-backdrop hidden" id="invoiceModal"><section class="modal invoice-modal" role="dialog" aria-modal="true" aria-labelledby="invoiceModalTitle"><div class="modal-header"><div><div class="eyebrow"><span class="eyebrow-line"></span> INVOICE REVIEW</div><h2 id="invoiceModalTitle">Review extracted invoice</h2><p id="invoiceModalMeta"></p></div><button class="icon-btn close-modal" data-close="invoiceModal" aria-label="Close">×</button></div><div class="modal-content" id="invoiceDetail"></div></section></div>
+
+  <div class="modal-backdrop hidden" id="settingsModal"><section class="modal settings-modal" role="dialog" aria-modal="true" aria-labelledby="settingsTitle"><div class="modal-header"><div><div class="eyebrow"><span class="eyebrow-line"></span> CONNECTION</div><h2 id="settingsTitle">API settings</h2><p>Configure the backend this workspace connects to.</p></div><button class="icon-btn close-modal" data-close="settingsModal" aria-label="Close">×</button></div><form id="settingsForm" class="modal-content settings-form"><label class="field-label" for="apiBase">API base URL</label><input id="apiBase" class="form-control" placeholder="http://localhost:8000/api/v1"><p class="form-hint">For example: http://localhost:8000/api/v1</p><label class="field-label" for="apiKey">API key <span class="optional">OPTIONAL</span></label><input id="apiKey" class="form-control" type="password" autocomplete="off" placeholder="Enter your X-API-Key"><p class="form-hint">Stored only in this browser. Leave blank when authentication is disabled.</p><div class="modal-actions"><button type="button" class="btn btn-light" data-close="settingsModal">Cancel</button><button class="btn btn-dark">Save settings</button></div></form></section></div>
+</body>
+</html>

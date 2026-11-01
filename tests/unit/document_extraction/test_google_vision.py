@@ -154,9 +154,7 @@ def test_get_access_token_rejects_missing_token(ocr_client: GoogleVisionOCR):
 @pytest.mark.unit
 def test_extract_image_sends_authenticated_request(ocr_client: GoogleVisionOCR):
     ocr_client._get_access_token = AsyncMock(return_value="access-token")
-    ocr_client.client.post = AsyncMock(
-        return_value=httpx.Response(200, json=vision_response())
-    )
+    ocr_client.client.post = AsyncMock(return_value=httpx.Response(200, json=vision_response()))
 
     result = asyncio.run(ocr_client.extract_image(b"image-bytes"))
 
@@ -165,9 +163,9 @@ def test_extract_image_sends_authenticated_request(ocr_client: GoogleVisionOCR):
     assert request.args[0] == "https://vision.googleapis.com/v1/images:annotate"
     assert request.kwargs["headers"] == {"Authorization": "Bearer access-token"}
     assert payload["requests"][0]["features"][0]["type"] == "DOCUMENT_TEXT_DETECTION"
-    assert payload["requests"][0]["image"]["content"] == base64.b64encode(
-        b"image-bytes"
-    ).decode("ascii")
+    assert payload["requests"][0]["image"]["content"] == base64.b64encode(b"image-bytes").decode(
+        "ascii"
+    )
     assert result["text"] == "Invoice 123"
 
 
@@ -204,9 +202,7 @@ def test_extract_image_rejects_non_retryable_http_error(ocr_client: GoogleVision
 @pytest.mark.unit
 def test_extract_image_rejects_invalid_json_response(ocr_client: GoogleVisionOCR):
     ocr_client._get_access_token = AsyncMock(return_value="access-token")
-    ocr_client.client.post = AsyncMock(
-        return_value=httpx.Response(200, content=b"not-json")
-    )
+    ocr_client.client.post = AsyncMock(return_value=httpx.Response(200, content=b"not-json"))
 
     with pytest.raises(VisionOCRError, match="Invalid Google Vision JSON"):
         asyncio.run(ocr_client.extract_image(b"image-bytes"))

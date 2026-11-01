@@ -121,9 +121,7 @@ def test_extract_image_pages_returns_completed_result(workspace_tmp_path: Path):
     ocr = MagicMock()
     ocr.extract_image = AsyncMock(return_value=ocr_result())
 
-    results = asyncio.run(
-        collect_results(extract_image_pages(file_path, ocr, enhance=False))
-    )
+    results = asyncio.run(collect_results(extract_image_pages(file_path, ocr, enhance=False)))
 
     assert results == [
         {

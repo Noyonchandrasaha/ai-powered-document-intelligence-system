@@ -50,9 +50,7 @@ def test_pdf_pipeline_processes_real_pdf(workspace_tmp_path: Path):
     create_pdf(file_path)
 
     results = asyncio.run(
-        collect_results(
-            process_document("document-01", file_path, DocumentType.PDF)
-        )
+        collect_results(process_document("document-01", file_path, DocumentType.PDF))
     )
 
     assert len(results) == 1
@@ -68,9 +66,7 @@ def test_csv_pipeline_processes_real_csv(workspace_tmp_path: Path):
     file_path.write_text("name,amount\nAlice,10\n", encoding="utf-8")
 
     results = asyncio.run(
-        collect_results(
-            process_document("document-02", file_path, DocumentType.CSV)
-        )
+        collect_results(process_document("document-02", file_path, DocumentType.CSV))
     )
 
     assert len(results) == 1
@@ -86,9 +82,7 @@ def test_xlsx_pipeline_processes_real_workbook(workspace_tmp_path: Path):
     create_xlsx(file_path)
 
     results = asyncio.run(
-        collect_results(
-            process_document("document-03", file_path, DocumentType.XLSX)
-        )
+        collect_results(process_document("document-03", file_path, DocumentType.XLSX))
     )
 
     assert len(results) == 1
@@ -107,9 +101,7 @@ def test_image_pipeline_processes_real_image_with_mock_ocr(
     ocr = create_ocr()
 
     results = asyncio.run(
-        collect_results(
-            process_document("document-04", file_path, DocumentType.PNG, ocr)
-        )
+        collect_results(process_document("document-04", file_path, DocumentType.PNG, ocr))
     )
 
     assert len(results) == 1

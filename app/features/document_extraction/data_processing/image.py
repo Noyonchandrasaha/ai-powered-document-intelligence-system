@@ -1,4 +1,3 @@
-
 import asyncio
 import io
 from collections.abc import AsyncIterator
@@ -49,15 +48,9 @@ def get_image_page_count(
     try:
         with Image.open(file_path) as image:
             if image.format not in {"JPEG", "PNG", "TIFF"}:
-                raise ImageProcessingError(
-                    "Unsupported image format."
-                )
+                raise ImageProcessingError("Unsupported image format.")
 
-            return (
-                int(getattr(image, "n_frames", 1))
-                if image.format == "TIFF"
-                else 1
-            )
+            return int(getattr(image, "n_frames", 1)) if image.format == "TIFF" else 1
 
     except (FileNotFoundError, ImageProcessingError):
         raise
@@ -67,9 +60,7 @@ def get_image_page_count(
         UnidentifiedImageError,
         Image.DecompressionBombError,
     ) as exc:
-        raise ImageProcessingError(
-            "Unable to read image metadata."
-        ) from exc
+        raise ImageProcessingError("Unable to read image metadata.") from exc
 
 
 def _encode_ocr_image(
@@ -91,7 +82,6 @@ def _encode_ocr_image(
 
     # Fall back to compressed JPEG.
     for _ in range(5):
-
         for quality in (90, 80, 65):
             buffer = io.BytesIO()
 
@@ -118,9 +108,7 @@ def _encode_ocr_image(
             Image.Resampling.LANCZOS,
         )
 
-    raise ImageProcessingError(
-        "Page exceeds OCR image size limit."
-    )
+    raise ImageProcessingError("Page exceeds OCR image size limit.")
 
 
 def _prepare_frame(
@@ -134,32 +122,21 @@ def _prepare_frame(
 
     width, height = source.size
 
-    if (
-        width <= 0
-        or height <= 0
-        or width * height > MAX_SOURCE_PIXELS
-    ):
-        raise ImageProcessingError(
-            "Image dimensions exceed safety limits."
-        )
+    if width <= 0 or height <= 0 or width * height > MAX_SOURCE_PIXELS:
+        raise ImageProcessingError("Image dimensions exceed safety limits.")
 
     # Correct EXIF orientation.
     oriented = ImageOps.exif_transpose(source)
 
     # Convert transparent images to RGB with white background.
-    if "A" in oriented.getbands() or (
-        oriented.mode == "P"
-        and "transparency" in oriented.info
-    ):
+    if "A" in oriented.getbands() or (oriented.mode == "P" and "transparency" in oriented.info):
         background = Image.new(
             "RGBA",
             oriented.size,
             "white",
         )
 
-        background.alpha_composite(
-            oriented.convert("RGBA")
-        )
+        background.alpha_composite(oriented.convert("RGBA"))
 
         processed = background.convert("RGB")
 
@@ -184,9 +161,7 @@ def _prepare_frame(
             Image.Resampling.BILINEAR,
         )
 
-        contrast_stddev = ImageStat.Stat(
-            sample.convert("L")
-        ).stddev[0]
+        contrast_stddev = ImageStat.Stat(sample.convert("L")).stddev[0]
 
         if contrast_stddev < 40:
             processed = ImageOps.autocontrast(
@@ -214,9 +189,7 @@ async def extract_image_pages(
     path = Path(file_path)
 
     if not path.is_file():
-        raise FileNotFoundError(
-            f"Image not found: {path}"
-        )
+        raise FileNotFoundError(f"Image not found: {path}")
 
     try:
         image = Image.open(path)
@@ -226,41 +199,28 @@ async def extract_image_pages(
         UnidentifiedImageError,
         Image.DecompressionBombError,
     ) as exc:
-        raise ImageProcessingError(
-            "Unable to open image."
-        ) from exc
+        raise ImageProcessingError("Unable to open image.") from exc
 
     with image:
-
         if image.format not in {"JPEG", "PNG", "TIFF"}:
-            raise ImageProcessingError(
-                "Unsupported image format."
-            )
+            raise ImageProcessingError("Unsupported image format.")
 
-        total_pages = (
-            int(getattr(image, "n_frames", 1))
-            if image.format == "TIFF"
-            else 1
-        )
+        total_pages = int(getattr(image, "n_frames", 1)) if image.format == "TIFF" else 1
 
         for frame_index in range(total_pages):
             page_number = frame_index + 1
 
             try:
                 # Image processing is synchronous and CPU-bound.
-                image_bytes, (width, height) = (
-                    await asyncio.to_thread(
-                        _prepare_frame,
-                        image,
-                        frame_index,
-                        enhance,
-                    )
+                image_bytes, (width, height) = await asyncio.to_thread(
+                    _prepare_frame,
+                    image,
+                    frame_index,
+                    enhance,
                 )
 
                 # Call the existing Google Vision OCR client.
-                result = await ocr.extract_image(
-                    image_bytes
-                )
+                result = await ocr.extract_image(image_bytes)
 
                 yield {
                     "page_number": page_number,
@@ -292,8 +252,5 @@ async def extract_image_pages(
                     "image_width": None,
                     "image_height": None,
                     "extraction_method": "google_vision",
-                    "error": (
-                        "Page processing failed: "
-                        f"{type(exc).__name__}"
-                    ),
+                    "error": (f"Page processing failed: {type(exc).__name__}"),
                 }

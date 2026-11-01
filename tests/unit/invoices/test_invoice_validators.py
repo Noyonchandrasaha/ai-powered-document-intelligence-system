@@ -135,21 +135,23 @@ def test_validate_invoice_extraction_cross_verifies_pdf_and_spreadsheet() -> Non
     context = InvoiceContext(
         document_id="doc-1",
         content=(
-            json.dumps({
-                "source_id": "page:1:native",
-                "kind": "page",
-                "page_number": 1,
-                "text": "Total 100.00",
-            })
+            json.dumps(
+                {
+                    "source_id": "page:1:native",
+                    "kind": "page",
+                    "page_number": 1,
+                    "text": "Total 100.00",
+                }
+            )
             + "\n"
-            + json.dumps({
-                "source_id": "sheet:1:row:2",
-                "kind": "sheet_chunk",
-                "sheet_name": "Sheet1",
-                "cells": [
-                    {"coordinate": "B2", "value": "100.00"}
-                ],
-            })
+            + json.dumps(
+                {
+                    "source_id": "sheet:1:row:2",
+                    "kind": "sheet_chunk",
+                    "sheet_name": "Sheet1",
+                    "cells": [{"coordinate": "B2", "value": "100.00"}],
+                }
+            )
             + "\n"
         ),
         source_units=("page:1", "sheet:1:row:2"),
@@ -208,11 +210,7 @@ def test_validate_invoice_extraction_adds_line_items_evidence_when_missing() -> 
         _context(),
     )
 
-    line_items_evidence = [
-        entry
-        for entry in result.evidence
-        if entry.field_path == "line_items"
-    ]
+    line_items_evidence = [entry for entry in result.evidence if entry.field_path == "line_items"]
 
     assert len(line_items_evidence) == 1
     assert line_items_evidence[0].status is FieldStatus.MISSING
@@ -225,9 +223,7 @@ def test_validate_invoice_extraction_marks_invalid_line_items_uncertain() -> Non
         "doc-1",
         InvoiceAIResult(
             is_invoice=True,
-            invoice=InvoiceData(
-                line_items=[InvoiceLineItem(description="Unknown item")]
-            ),
+            invoice=InvoiceData(line_items=[InvoiceLineItem(description="Unknown item")]),
             evidence=[_evidence("line_items[0].description", "Unknown item")],
         ),
         _context(),

@@ -1,7 +1,9 @@
+import json
 import re
 from datetime import UTC, datetime
 from typing import Any
 
+from app.core.exceptions import AppError
 from app.features.document_extraction.schemas import (
     DocumentResponse,
     DocumentStatus,
@@ -13,6 +15,7 @@ from pymongo.asynchronous.database import AsyncDatabase
 
 class DocumentRepository:
     def __init__(self, database: AsyncDatabase[Any]):
+        self.database = database
         self.collection = database["documents"]
 
     async def ensure_indexes(self) -> None:
@@ -24,6 +27,12 @@ class DocumentRepository:
         await self.collection.create_index(
             [("status", ASCENDING), ("created_at", -1)],
             name="idx_document_status_created",
+        )
+
+    async def update_progress(self, document_id: str, processed_units: int) -> None:
+        await self.collection.update_one(
+            {"document_id": document_id},
+            {"$set": {"processed_units": processed_units, "updated_at": datetime.now(UTC)}},
         )
 
     async def create_document(
@@ -73,14 +82,11 @@ class DocumentRepository:
 
         if total_pages is not None:
             if total_pages < 1:
-                raise ValueError(
-                    "total_pages must be greater than zero."
-                )
+                raise ValueError("total_pages must be greater than zero.")
 
             update_data["total_pages"] = total_pages
 
-        if error_message is not None:
-            update_data["error_message"] = error_message
+        update_data["error_message"] = error_message
 
         document = await self.collection.find_one_and_update(
             {"document_id": document_id},
@@ -99,11 +105,28 @@ class DocumentRepository:
         document_id: str,
     ) -> bool:
 
-        result = await self.collection.delete_one(
-            {"document_id": document_id}
-        )
+        active = await self.database["jobs"].find_one({"active_key": document_id})
+        if active:
+            raise AppError(
+                "Wait for the active document job before deleting.",
+                code="document_busy",
+                status_code=409,
+            )
+        result = await self.collection.delete_one({"document_id": document_id})
 
-        return result.deleted_count == 1
+        if result.deleted_count == 1:
+            for name in (
+                "extraction_results",
+                "invoice_extractions",
+                "processing_history",
+                "jobs",
+                "invoice_candidates",
+                "invoice_identities",
+            ):
+                await self.database[name].delete_many({"document_id": document_id})
+            await self.database["reconciliations"].delete_many({"document_ids": document_id})
+            return True
+        return False
 
     async def get_storage_path(
         self,
@@ -131,18 +154,27 @@ class DocumentRepository:
 
         if query:
             safe_query = re.escape(query.strip())
+            matching_ids = await self.database["extraction_results"].distinct(
+                "document_id",
+                {"$text": {"$search": query.strip()}},
+            )
             filters["$or"] = [
                 {"document_id": {"$regex": safe_query, "$options": "i"}},
                 {"filename": {"$regex": safe_query, "$options": "i"}},
+                {"document_id": {"$in": matching_ids}},
             ]
 
         if status is not None:
             filters["status"] = status.value
 
-        cursor = self.collection.find(
-            filters,
-            {"_id": 0},
-        ).sort("created_at", -1).limit(limit)
+        cursor = (
+            self.collection.find(
+                filters,
+                {"_id": 0},
+            )
+            .sort("created_at", -1)
+            .limit(limit)
+        )
 
         documents = await cursor.to_list(length=limit)
         return [DocumentResponse.model_validate(item) for item in documents]
@@ -160,6 +192,7 @@ class DocumentRepository:
                 "total_pages": 1,
                 "error_message": 1,
                 "updated_at": 1,
+                "processed_units": 1,
             },
         )
 
@@ -185,6 +218,20 @@ class ProcessingRepository:
         if results:
             await self.results.insert_many(results, ordered=True)
 
+    async def save_result(self, document_id: str, result: dict[str, Any]) -> None:
+        result = dict(result)
+        result["search_text"] = "\n".join(
+            str(result.get(field) or "") for field in ("text", "native_text", "ocr_text")
+        ) + json.dumps(result.get("rows", []), ensure_ascii=False, default=str)
+        await self.results.replace_one(
+            {"document_id": document_id, "unit_id": result["unit_id"]},
+            result,
+            upsert=True,
+        )
+
+    async def clear_results(self, document_id: str) -> None:
+        await self.results.delete_many({"document_id": document_id})
+
     async def get_results(
         self,
         document_id: str,
@@ -208,13 +255,18 @@ class ProcessingRepository:
         document_id: str,
         limit: int = 50,
     ) -> list[dict[str, Any]]:
-        cursor = self.history.find(
-            {"document_id": document_id},
-            {"_id": 0},
-        ).sort("started_at", -1).limit(limit)
+        cursor = (
+            self.history.find(
+                {"document_id": document_id},
+                {"_id": 0},
+            )
+            .sort("started_at", -1)
+            .limit(limit)
+        )
         return await cursor.to_list(length=limit)
 
     async def ensure_indexes(self) -> None:
+        await self.results.create_index([("search_text", "text")], name="idx_source_text")
         await self.results.create_index(
             [("document_id", 1), ("unit_id", 1)],
             unique=True,

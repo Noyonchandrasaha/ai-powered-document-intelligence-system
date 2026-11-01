@@ -1,4 +1,3 @@
-
 from typing import Annotated
 
 from app.core.database import get_database
@@ -85,12 +84,7 @@ DocumentId = Annotated[
 async def upload_documents(
     files: Annotated[
         list[UploadFile],
-        File(
-            description=(
-                "Upload PDF, JPG, PNG, TIFF, "
-                "XLSX, XLS, or CSV documents."
-            )
-        ),
+        File(description=("Upload PDF, JPG, PNG, TIFF, XLSX, XLS, or CSV documents.")),
     ],
     service: Annotated[
         DocumentService,
@@ -106,10 +100,7 @@ async def upload_documents(
     try:
         response = await service.upload_documents(files)
         for document in response.documents:
-            background_tasks.add_task(
-                processing_service.process_document,
-                document.document_id,
-            )
+            await processing_service.enqueue_document(document.document_id)
         return response
 
     except (
@@ -121,6 +112,57 @@ async def upload_documents(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(exc),
         ) from exc
+
+
+@router.get(
+    "/search",
+    response_model=list[DocumentResponse],
+    summary="Search documents",
+)
+async def search_documents(
+    database: Annotated[
+        AsyncDatabase[dict[str, object]],
+        Depends(get_database),
+    ],
+    query: str | None = None,
+    document_status: DocumentStatus | None = None,
+    limit: int = 50,
+) -> list[DocumentResponse]:
+    if limit < 1 or limit > 100:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="limit must be between 1 and 100.",
+        )
+
+    return await DocumentRepository(database).search_documents(
+        query=query,
+        status=document_status,
+        limit=limit,
+    )
+
+
+@router.get("/{document_id}/units", summary="Inspect source pages, sheets and rows")
+async def source_units(
+    document_id: DocumentId,
+    database: Annotated[AsyncDatabase[dict[str, object]], Depends(get_database)],
+    offset: int = 0,
+    limit: int = 50,
+) -> list[dict[str, object]]:
+    if offset < 0 or not 1 <= limit <= 100:
+        raise HTTPException(422, "offset must be nonnegative and limit must be 1..100.")
+    if await DocumentRepository(database).get_document(document_id) is None:
+        raise HTTPException(404, "Document not found.")
+    return (
+        await database["extraction_results"]
+        .find(
+            {"document_id": document_id},
+            {"_id": 0},
+        )
+        .sort([("page_number", 1), ("sheet_index", 1), ("start_row", 1)])
+        .skip(offset)
+        .limit(limit)
+        .to_list(length=limit)
+    )
 
 
 @router.get(
@@ -181,9 +223,7 @@ async def get_document_status(
         Depends(get_database),
     ],
 ) -> DocumentStatusResponse:
-    status_response = await DocumentRepository(database).get_document_status(
-        document_id
-    )
+    status_response = await DocumentRepository(database).get_document_status(document_id)
 
     if status_response is None:
         raise HTTPException(
@@ -227,19 +267,14 @@ async def reprocess_document(
     }:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail=(
-                "Only failed or partial documents can be reprocessed."
-            ),
+            detail=("Only failed or partial documents can be reprocessed."),
         )
 
     await repository.update_document_status(
         document_id,
         DocumentStatus.PENDING,
     )
-    background_tasks.add_task(
-        processing_service.process_document,
-        document_id,
-    )
+    await processing_service.enqueue_document(document_id)
 
     return DocumentStatusResponse(
         document_id=document_id,
@@ -273,28 +308,23 @@ async def get_processing_history(
     return [ProcessingHistoryResponse.model_validate(item) for item in history]
 
 
-@router.get(
-    "/search",
-    response_model=list[DocumentResponse],
-    summary="Search documents",
-)
-async def search_documents(
-    database: Annotated[
-        AsyncDatabase[dict[str, object]],
-        Depends(get_database),
-    ],
-    query: str | None = None,
-    document_status: DocumentStatus | None = None,
+@router.get("/{document_id}/candidates", summary="List automatic invoice groups")
+async def invoice_candidates(
+    document_id: DocumentId,
+    database: Annotated[AsyncDatabase[dict[str, object]], Depends(get_database)],
+    offset: int = 0,
     limit: int = 50,
-) -> list[DocumentResponse]:
-    if limit < 1 or limit > 100:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail="limit must be between 1 and 100.",
+) -> list[dict[str, object]]:
+    if offset < 0 or not 1 <= limit <= 100:
+        raise HTTPException(422, "Invalid pagination.")
+    return (
+        await database["invoice_candidates"]
+        .find(
+            {"document_id": document_id},
+            {"_id": 0},
         )
-
-    return await DocumentRepository(database).search_documents(
-        query=query,
-        status=document_status,
-        limit=limit,
+        .sort("candidate_id", 1)
+        .skip(offset)
+        .limit(limit)
+        .to_list(length=limit)
     )

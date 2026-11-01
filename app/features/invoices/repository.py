@@ -404,10 +404,18 @@ class InvoiceRepository:
         if duplicate:
             errors.append("Invoice number already exists for another document.")
         corrected_at = datetime.now(UTC)
-        revision = previous.get("revision", 0)
+        # Older extraction records predate optimistic revisions. Match their
+        # missing revision explicitly; mongomock and MongoDB both support this
+        # query shape, whereas comparing a missing field to the default value
+        # would make every first correction look like a concurrent conflict.
+        revision = previous.get("revision")
+        legacy_revision = "revision" not in previous
         revision_filter: dict[str, Any] = {"extraction_id": extraction_id}
-        revision_filter["revision"] = revision if "revision" in previous else {"$exists": False}
-        document = await self.collection.find_one_and_update(
+        if legacy_revision:
+            revision_filter["revision"] = {"$exists": False}
+        else:
+            revision_filter["revision"] = revision
+        update_result = await self.collection.update_one(
             revision_filter,
             {
                 "$set": {
@@ -437,15 +445,24 @@ class InvoiceRepository:
                     }
                 },
             },
-            projection=RESULT_PROJECTION,
-            return_document=ReturnDocument.AFTER,
         )
 
-        if document is None:
+        if update_result.modified_count != 1:
             raise AppError(
                 "Invoice changed during correction; reload and retry.",
                 code="correction_conflict",
                 status_code=409,
+            )
+
+        document = await self.collection.find_one(
+            {"extraction_id": extraction_id},
+            projection=RESULT_PROJECTION,
+        )
+        if document is None:
+            raise AppError(
+                "Corrected invoice could not be reloaded.",
+                code="correction_reload_failed",
+                status_code=500,
             )
 
         return InvoiceExtractionResponse.model_validate(document)

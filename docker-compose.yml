@@ -1,37 +1,15 @@
 services:
-  mongo:
-    image: mongo:8.0
-    restart: unless-stopped
-    environment:
-      MONGO_INITDB_ROOT_USERNAME: ${MONGO_ROOT_USERNAME:-document_admin}
-      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD:?Set MONGO_ROOT_PASSWORD in .env}
-      MONGO_APP_USERNAME: ${MONGO_APP_USERNAME:-document_app}
-      MONGO_APP_PASSWORD: ${MONGO_APP_PASSWORD:?Set MONGO_APP_PASSWORD in .env}
-      MONGO_APP_DATABASE: ${APP_MONGO_DATABASE:-document_intelligence}
-    volumes:
-      - mongo_data:/data/db
-      - ./docker/mongo-init.sh:/docker-entrypoint-initdb.d/10-create-app-user.sh:ro
-    healthcheck:
-      test: ["CMD-SHELL", "mongosh --quiet --username $$MONGO_INITDB_ROOT_USERNAME --password $$MONGO_INITDB_ROOT_PASSWORD --authenticationDatabase admin --eval \"db.adminCommand('ping').ok\""]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
   api:
     build: .
     ports:
       - "127.0.0.1:8000:8000"
     env_file: .env
     environment: &app_environment
-      APP_MONGO_URI: mongodb://${MONGO_APP_USERNAME:-document_app}:${MONGO_APP_PASSWORD}@mongo:27017/${APP_MONGO_DATABASE:-document_intelligence}?authSource=${APP_MONGO_DATABASE:-document_intelligence}
       APP_GOOGLE_VISION_CREDENTIALS_FILE: /app/secrets/google-vision.json
       UPLOAD_DIR: /app/data/uploads
     volumes: &app_volumes
       - uploads:/app/data/uploads
       - ./secrets:/app/secrets:ro
-    depends_on:
-      mongo:
-        condition: service_healthy
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/v1/health/live')"]
@@ -45,11 +23,7 @@ services:
     env_file: .env
     environment: *app_environment
     volumes: *app_volumes
-    depends_on:
-      mongo:
-        condition: service_healthy
     restart: unless-stopped
 
 volumes:
-  mongo_data:
   uploads:

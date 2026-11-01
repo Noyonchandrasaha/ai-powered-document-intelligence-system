@@ -7,10 +7,54 @@ from typing import Any
 
 from app.features.invoices.context import MAX_CONTEXT_CHARS, MAX_SOURCE_UNITS
 
-INVOICE_NUMBER = re.compile(
-    r"\binvoice\s*(?:number|no\.?|#)\s*[:#-]?\s*([A-Za-z0-9][A-Za-z0-9_/-]*)",
+INVOICE_NUMBER_LABEL = re.compile(
+    r"^\s*invoice\s*(?:number|no\.?|#)\s*(?:[:#-]\s*)?(.*?)\s*$",
     re.IGNORECASE,
 )
+INVOICE_METADATA_LABEL = re.compile(
+    r"^\s*(?:invoice\s+date|due\s+date|issue\s+date|"
+    r"supplier(?:\s*/\s*from)?|customer(?:\s*/\s*bill\s+to)?|"
+    r"description|qty|quantity|unit\s+price|amount|subtotal|tax|vat|total)\s*:?\s*$",
+    re.IGNORECASE,
+)
+DATE_VALUE = re.compile(
+    r"^\s*(?:\d{4}-\d{1,2}-\d{1,2}|\d{1,2}[/-]\d{1,2}[/-]\d{2,4})\s*$"
+)
+NON_INVOICE_HEADER = re.compile(
+    r"^\s*(?:purchase\s+order|purchase\s+request|receipt|account\s+statement)\b",
+    re.IGNORECASE | re.MULTILINE,
+)
+INVOICE_VALUE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_/-]*")
+
+
+def _invoice_numbers(text: str) -> list[str]:
+    """Read invoice IDs without mistaking the following field label for a value."""
+    lines = text.splitlines()
+    values: list[str] = []
+    for index, line in enumerate(lines):
+        label = INVOICE_NUMBER_LABEL.fullmatch(line)
+        if label is None:
+            continue
+        inline_value = INVOICE_VALUE.match(label.group(1).strip())
+        if inline_value:
+            values.append(inline_value.group())
+            continue
+        for candidate in lines[index + 1 : index + 6]:
+            candidate = candidate.strip()
+            if not candidate or INVOICE_METADATA_LABEL.fullmatch(candidate):
+                continue
+            if DATE_VALUE.fullmatch(candidate):
+                continue
+            value = INVOICE_VALUE.match(candidate)
+            if value is None:
+                continue
+            token = value.group()
+            # A multiline value must look like an identifier. Otherwise a
+            # supplier name or another nearby field could be guessed as one.
+            if any(character.isdigit() for character in token):
+                values.append(token)
+            break
+    return list(dict.fromkeys(values))
 
 
 class InvoiceGrouper:
@@ -82,8 +126,15 @@ class InvoiceGrouper:
                     }
                 return
         text = unit.get("text") or unit.get("native_text") or unit.get("ocr_text") or ""
-        matches = list(dict.fromkeys(INVOICE_NUMBER.findall(text)))
+        matches = _invoice_numbers(text)
         key = matches[0].casefold() if len(matches) == 1 else None
+        non_invoice = bool(NON_INVOICE_HEADER.search("\n".join(text.splitlines()[:6])))
+        if non_invoice and self.current:
+            previous = self.flush()
+            if previous:
+                yield previous
+        if non_invoice:
+            key = None
         if tabular:
             key = f"sheet:{sheet_key}"
         unit_size = len(json.dumps(unit, default=str))

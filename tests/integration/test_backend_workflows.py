@@ -246,6 +246,7 @@ def test_api_authentication_rate_limit_and_cors():
             api_key="test-secret",
             rate_limit_per_minute=2,
             allowed_origins=["http://localhost:3000"],
+            allowed_hosts=["testserver"],
         )
     )
     with TestClient(app) as client:
@@ -298,6 +299,48 @@ def test_grouping_continuations_ambiguous_pages_and_register_chunks():
         grouper.feed({**unit, "unit_id": "sheet:1:row:3", "rows": [{**row, "row_number": 3}]})
     )
     assert second[0]["units"][0]["rows"][0] == header
+
+
+@pytest.mark.unit
+def test_grouping_multiline_invoice_labels_and_purchase_order_boundary():
+    def labeled_page(number: int, invoice_number: str) -> dict[str, object]:
+        return page(
+            number,
+            "INVOICE\nINVOICE NUMBER\nINVOICE DATE\n2026-10-20\n"
+            f"{invoice_number}\nSupplier Ltd.\nTotal 100.00",
+        )
+
+    groups = list(
+        group_invoice_units(
+            [
+                labeled_page(1, "EDGE-2026-001"),
+                labeled_page(2, "EDGE-2026-002"),
+                labeled_page(3, "EDGE-2026-001"),
+                page(
+                    4,
+                    "INVOICE\nINVOICE NUMBER\nINVOICE DATE\n05/06/2026\n"
+                    "EDGE-2026-004\nSupplier Ltd.",
+                ),
+                page(5, "PURCHASE ORDER\nPO-2026-009\nNot an invoice."),
+            ]
+        )
+    )
+
+    assert [group["invoice_hint"] for group in groups] == [
+        "edge-2026-001",
+        "edge-2026-002",
+        "edge-2026-001",
+        "edge-2026-004",
+        None,
+    ]
+    assert [group["unit_ids"] for group in groups] == [
+        ["page:1"],
+        ["page:2"],
+        ["page:3"],
+        ["page:4"],
+        ["page:5"],
+    ]
+    assert groups[-1]["requires_review"]
 
 
 @pytest.mark.unit

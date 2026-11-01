@@ -33,19 +33,28 @@ The backend stores metadata, extracted units, processing history, and validated 
 
 ## Local setup
 
-1. Create and activate a Python 3.12 virtual environment.
+1. Create and activate a Python 3.12 virtual environment (Python 3.13 also works in the tested local environment).
+
+   ```powershell
+   py -3.12 -m venv .venv
+   .venv\\Scripts\\Activate.ps1
+   ```
 2. Install dependencies:
 
    ```powershell
    python -m pip install -e ".[dev]"
    ```
 
-3. Copy `.env.example` to `.env` and configure MongoDB, OpenAI, and Google
-   Vision credentials.
-4. Run MongoDB, then start the API:
+3. Copy `.env.example` to `.env` and configure your existing MongoDB connection
+   string (`APP_MONGO_URI`) and database name. Configure OpenAI for invoice AI
+   extraction and Google Vision for scanned/image OCR; digital PDF and
+   spreadsheet parsing can be tested without those external services.
+4. Start the API and worker:
 
    ```powershell
    uvicorn app.main:app --reload
+   # In a second terminal, activate .venv and run:
+   python -m app.worker
    ```
 
 5. Open `http://localhost:8000/ui/` for the browser dashboard. The dashboard
@@ -54,17 +63,20 @@ The backend stores metadata, extracted units, processing history, and validated 
    document-to-document reconciliation. If `APP_API_KEY` is configured, use
    **Workspace admin → API settings** to enter it in the browser.
 
-Or run MongoDB and the API together:
+Or run the API and worker with Docker Compose, using the MongoDB server in
+`APP_MONGO_URI` (Compose does not start a MongoDB container):
 
 ```powershell
 docker compose up --build
 ```
 
-Set unique random hex values for `MONGO_ROOT_PASSWORD`, `MONGO_APP_PASSWORD`,
-and `APP_API_KEY` (at least 32 characters) in `.env`. Mongo creates a
-least-privilege application user; uploads persist in a named volume. Mount
-Google Vision credentials at `secrets/google-vision.json`. Run a local worker
-with `.venv\\Scripts\\python -m app.worker`.
+Set `APP_MONGO_URI` to your MongoDB connection string in `.env`. The API and
+worker both connect to this external MongoDB server; Compose does not create a
+MongoDB container. Set a random
+`APP_API_KEY` (at least 32 characters) only if you want API authentication.
+Uploads persist in a named Docker volume. For scanned documents, place Google
+Vision credentials at `secrets/google-vision.json`. For local runs, set
+`APP_GOOGLE_VISION_CREDENTIALS_FILE` to the credential JSON path in `.env`.
 
 Never commit `.env`, service-account credentials, or API keys.
 
@@ -116,21 +128,43 @@ Set `APP_SEMANTIC_SEARCH_ENABLED=true` to create embeddings. Local search stream
 
 ```powershell
 python -m pytest --cov=app --cov-report=term-missing --cov-fail-under=80
-python -m ruff check .
+python -m ruff check app tests scripts
 python -m mypy app
+python scripts/generate_evaluation_dataset.py
+python scripts/run_evaluation.py evaluation-data/manifest.jsonl --output docs/evaluation-run.jsonl
 ```
 
 Tests are organized under `tests/unit` and `tests/integration`. Integration
 tests use controlled Mongo/OpenAI adapters and do not require live external
 services.
 
+Latest local engineering checks (2026-11-01): **254 tests passed**, **81.04%
+coverage**, Ruff passed, and mypy passed (43 source files). The reproducible
+synthetic parser benchmark completed 4/4 valid non-OCR documents (digital PDF,
+two-sheet XLSX, XLS, CSV); both corrupt/misleading-extension samples were
+correctly rejected. In the latest run parser p50 was 4.7 ms and p95 was 25.2
+ms. Six scan/image samples were skipped because Google Vision credentials
+were not configured. Consequently live OCR performance and OpenAI invoice
+field/line-item accuracy remain unmeasured; these smoke results do not
+represent production throughput or labeled-corpus accuracy. See
+[`docs/evaluation.md`](docs/evaluation.md) and [`docs/evaluation-run.jsonl`](docs/evaluation-run.jsonl).
+Automated check results are also saved in [`docs/test-results.md`](docs/test-results.md).
+
 ## Production notes
 
 - Set `APP_ENVIRONMENT=production`, a 32-character `APP_API_KEY`, and restricted `APP_ALLOWED_HOSTS`.
 - Keep `APP_OPENAI_API_KEY`, Mongo passwords, and Google service-account credentials outside git.
-- Mount `secrets/google-vision.json` at `/app/secrets/google-vision.json` when using Docker.
+- Mount Google Vision credentials at `/app/secrets/google-vision.json` when using Docker.
 - Put the API behind TLS and a gateway that shares rate limits across replicas.
 - Run additional worker containers for more processing capacity.
 - Run one or more `worker` instances separately from API replicas.
 - Run extra worker containers for more processing capacity.
 - Replace local volume storage with object storage for multi-host deployments.
+
+## Submission status and walkthrough
+
+The backend, browser UI, schema/architecture documentation, prompts/disclosure,
+synthetic parser evaluation, and automated engineering checks are included.
+The walkthrough recording is not included; `docs/backend-walkthrough.md` is a
+recording guide only. Live OCR/LLM accuracy still requires configured service
+credentials and a human-labeled evaluation corpus.

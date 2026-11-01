@@ -118,6 +118,13 @@ INVOICE_EXTRACTION_SYSTEM_PROMPT = dedent(
     - Do not duplicate items appearing in both
       native PDF text and OCR output.
     - Do not merge separate line items.
+    - When PDF table rows are flattened into separate
+      description, quantity, price, and amount lines,
+      provide each field's own exact source_text quotation.
+      Quote the description alone and quote each numeric
+      value exactly as shown. Do not reconstruct a row with
+      pipes, commas, or other separators that are absent
+      from the supplied source text.
 
     Return an empty list when no line items
     can be reliably identified.
@@ -177,6 +184,9 @@ INVOICE_EXTRACTION_SYSTEM_PROMPT = dedent(
     - Uncertain fields should explain the ambiguity.
     - Include line item evidence using paths such as
       line_items[0].description or line_items[0].amount.
+    - For line item evidence, quote only the exact source
+      value for that field so it can be verified against
+      the original page or spreadsheet cell.
 
     10. STRUCTURED OUTPUT
 
